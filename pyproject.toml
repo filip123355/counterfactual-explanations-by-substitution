@@ -1,0 +1,19 @@
+[project]
+name = "counterfactual-explanations-by-substitution"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "python-decouple>=3.8",
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.4",
+    "pandas>=2.3.3",
+    "pyarrow>=21.0.0",
+    "pydantic>=2.13.3",
+    "python-dotenv>=1.1.1",
+    "torch>=2.11.0",
+    "transformers>=5.6.2",
+    "torchvision>=0.26.0",
+]
