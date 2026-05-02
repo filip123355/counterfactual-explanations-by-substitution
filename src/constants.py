@@ -11,7 +11,7 @@ try:
 except Exception as e:
 	print(f"Error loading .env file: {e}")
 	
-CUB_DATASET = config("DATA_PATH")
+DATASET = config("DATA_PATH")
 
 # Training parameters
 BATCH_SIZE = 64
@@ -20,7 +20,8 @@ BATCH_SIZE = 64
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
-
+# Model name and configuration
+MODEL_NAME = "google/vit-base-patch16-224"
 
 
 
