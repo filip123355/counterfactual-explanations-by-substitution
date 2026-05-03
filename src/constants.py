@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from decouple import Config, RepositoryEnv
 
@@ -11,7 +10,7 @@ try:
 except Exception as e:
 	print(f"Error loading .env file: {e}")
 	
-DATASET = config("DATA_PATH")
+DATASET: str = config("DATA_PATH")
 
 # Training parameters
 BATCH_SIZE = 64

@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
@@ -14,12 +13,12 @@ class CLIPInference:
     
     def __init__(self, 
                  model_name: str = CLIP_MODEL_NAME, 
-                 device: str = None):
+                 device: str | None = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Loading CLIP from {model_name} on {self.device}...")
 
         self.processor = CLIPProcessor.from_pretrained(model_name)
-        self.model = CLIPModel.from_pretrained(model_name).to(self.device).eval()
+        self.model = CLIPModel.from_pretrained(model_name).to(self.device).eval() # ty: ignore
     
     def _load_images(self, 
                      images: Union[str, Image.Image, List[Union[str, Image.Image]]],
@@ -133,7 +132,7 @@ class CLIPInference:
 
 
 def load_clip(model_name: str = CLIP_MODEL_NAME, 
-              device: str = None,
+              device: str | None  = None,
 ) -> CLIPInference:
     return CLIPInference(
         model_name=model_name, 
@@ -141,7 +140,7 @@ def load_clip(model_name: str = CLIP_MODEL_NAME,
     )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     # Smoke test
     clip = load_clip()
     

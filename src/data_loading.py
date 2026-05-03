@@ -74,8 +74,8 @@ class CelebAFeatureDataset(Dataset):
             return None 
         
         pos = np.where(combined_mask > 0)
-        ymin, ymax = np.min(pos[0]), np.max(pos[0])
-        xmin, xmax = np.min(pos[1]), np.max(pos[1])
+        ymin, ymax = np.min(pos[0]).item(), np.max(pos[0]).item()
+        xmin, xmax = np.min(pos[1]).item(), np.max(pos[1]).item()
         
         # Producing bounding box 
         return (ymin, ymax, xmin, xmax)
@@ -84,9 +84,9 @@ class CelebAFeatureDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, 
-                    idx: int,
-    ) -> tuple[torch.Tensor, int]:
-        hq_idx = self.data.iloc[idx]['idx']
+                    index: int,
+    ) -> tuple[torch.Tensor | Image.Image, int]:
+        hq_idx = self.data.iloc[index]['idx']
         img_path = os.path.join(self.img_dir, f"{hq_idx}.jpg")
         
         image = Image.open(img_path).convert('RGB')
