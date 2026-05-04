@@ -2,6 +2,7 @@ import os
 from enum import StrEnum
 from typing import TypedDict
 
+import cv2
 import numpy as np
 import pandas as pd
 import torch
@@ -20,6 +21,8 @@ DEFAULT_TRANSFORMS = transforms.Compose(
     ]
 )
 
+CELEB_HQ_SIZE = (1024, 1024)
+
 
 class CelebAItem(TypedDict):
     hq_idx: int
@@ -28,55 +31,63 @@ class CelebAItem(TypedDict):
     bbox: tuple[int, int, int, int] | None
     mask: np.ndarray | None
 
+class Feature(StrEnum):
+    skin = "skin"
+    l_brow = "l_brow"
+    r_brow = "r_brow"
+    l_eye = "l_eye"
+    r_eye = "r_eye"
+    eye_g = "eye_g"
+    l_ear = "l_ear"
+    r_ear = "r_ear"
+    ear_r = "ear_r"
+    nose = "nose"
+    mouth = "mouth"
+    u_lip = "u_lip"
+    l_lip = "l_lip"
+    neck = "neck"
+    neck_l = "neck_l"
+    cloth = "cloth"
+    hair = "hair"
+    hat = "hat"
 
-class Features(StrEnum):
+class CompositeFeature(StrEnum):
     eyes = "eyes"
     eyebrows = "eyebrows"
     mouth = "mouth"
-    nose = "nose"
     ears = "ears"
-    hair = "hair"
     accessories = "accessories"
     face_full = "face_full"
 
+class CelebADataset:
+    root_dir: str
+    mask_dir: str
+    img_dir: str
+    data: pd.DataFrame
 
-class CelebAFeatureDataset(Dataset[CelebAItem]):
     # fmt: off
-    ALL_FEATURES: list[str] = [
-        'skin', 'l_brow', 'r_brow', 'l_eye', 'r_eye', 'eye_g', 'l_ear', 'r_ear', 
-        'ear_r', 'nose', 'mouth', 'u_lip', 'l_lip', 'neck', 'neck_l', 'cloth', 
-        'hair', 'hat'
-    ]
-
-    FEATURE_MAP: dict[Features, list[str]] = {
-        Features.eyes: ['l_eye', 'r_eye'],
-        Features.eyebrows: ['l_brow', 'r_brow'],
-        Features.mouth: ['u_lip', 'l_lip', 'mouth'],
-        Features.nose: ['nose'],
-        Features.ears: ['l_ear', 'r_ear'],
-        Features.hair: ['hair'],
-        Features.accessories: ['eye_g', 'ear_r', 'neck_l', 'hat'],
-        Features.face_full: ['skin', 'l_eye', 'r_eye', 'l_brow', 'r_brow', 'nose', 'u_lip', 'l_lip', 'mouth']
+    FEATURE_MAP: dict[CompositeFeature, list[Feature]] = {
+        CompositeFeature.eyes: [Feature.l_eye, Feature.r_eye],
+        CompositeFeature.eyebrows: [Feature.l_brow, Feature.r_brow],
+        CompositeFeature.mouth: [Feature.u_lip, Feature.l_lip, Feature.mouth],
+        CompositeFeature.ears: [Feature.l_ear, Feature.r_ear],
+        CompositeFeature.accessories: [Feature.eye_g, Feature.ear_r, Feature.neck_l, Feature.hat],
+        CompositeFeature.face_full: [Feature.skin, Feature.l_eye, Feature.r_eye, Feature.l_brow,
+                                     Feature.r_brow, Feature.nose, Feature.u_lip, Feature.l_lip, Feature.mouth]
     }
     # fmt: on
 
     def __init__(
         self,
-        root_dir: str,
-        partition_file: str,
-        mapping_file: str,
+        root_dir=DATASET,
+        partition_file=os.path.join(DATASET, "list_eval_partition.txt"),
+        mapping_file=os.path.join(DATASET, "CelebA-HQ-to-CelebA-mapping.txt"),
         split: str = "train",
-        feature_name: Features = Features.eyes,
-        transform=None,
-        padding: int = 20,
     ):
 
         self.root_dir = root_dir
         self.mask_dir = os.path.join(root_dir, "CelebAMask-HQ-mask-anno")
         self.img_dir = os.path.join(root_dir, "CelebA-HQ-img")
-        self.transform = transform
-        self.feature_parts = self.FEATURE_MAP.get(feature_name, [feature_name])
-        self.padding = padding
 
         mapping_df = pd.read_csv(mapping_file, sep="\\s+", header=0)
         partition_df = pd.read_csv(
@@ -90,6 +101,7 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
     def _get_bbox_and_mask(
         self,
         hq_idx: int,
+        feature: Feature | CompositeFeature,
     ) -> tuple[tuple[int, int, int, int], np.ndarray] | None:
         """Generates bounding box coordinates based on the fature-specific mask."""
 
@@ -99,7 +111,9 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
         folder_idx = hq_idx // 2000
         curr_mask_path = os.path.join(self.mask_dir, str(folder_idx))
 
-        for part in self.feature_parts:
+        feature_parts = self.FEATURE_MAP[feature] if isinstance(feature, CompositeFeature) else [feature]
+
+        for part in feature_parts:
             mask_file = os.path.join(
                 curr_mask_path, f"{hq_idx:05d}_{part}.png"
             )  # Masks are on .png format
@@ -114,6 +128,12 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
         if combined_mask is None or np.max(combined_mask) == 0:
             return None
 
+        combined_mask_bgr = cv2.cvtColor(combined_mask, cv2.COLOR_GRAY2BGR)
+        combined_mask_bgr = cv2.resize(
+            combined_mask_bgr, CELEB_HQ_SIZE, interpolation=cv2.INTER_NEAREST
+        )
+        combined_mask = cv2.cvtColor(combined_mask_bgr, cv2.COLOR_BGR2GRAY)
+
         pos = np.where(combined_mask > 0)
         ymin, ymax = np.min(pos[0]).item(), np.max(pos[0]).item()
         xmin, xmax = np.min(pos[1]).item(), np.max(pos[1]).item()
@@ -124,15 +144,17 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(
+    def get(
         self,
         index: int,
+        feature: Feature | CompositeFeature,
+        padding: int = 20,
     ) -> CelebAItem:
         hq_idx = self.data.iloc[index]["idx"]
         img_path = os.path.join(self.img_dir, f"{hq_idx}.jpg")
 
         full_image = Image.open(img_path).convert("RGB")
-        bbox_and_mask = self._get_bbox_and_mask(hq_idx)
+        bbox_and_mask = self._get_bbox_and_mask(hq_idx, feature)
 
         if bbox_and_mask is None:
             cropped_image = None
@@ -143,15 +165,14 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
 
             ymin, ymax, xmin, xmax = bbox
             w, h = full_image.size
-            ymin = max(0, ymin - self.padding)
-            ymax = min(h, ymax + self.padding)
-            xmin = max(0, xmin - self.padding)
-            xmax = min(w, xmax + self.padding)
+            assert w == CELEB_HQ_SIZE[0] and h == CELEB_HQ_SIZE[1]
+
+            ymin = max(0, ymin - padding)
+            ymax = min(h, ymax + padding)
+            xmin = max(0, xmin - padding)
+            xmax = min(w, xmax + padding)
 
             cropped_image = full_image.crop((xmin, ymin, xmax, ymax))
-
-            if self.transform:
-                cropped_image = self.transform(cropped_image)
 
         return {
             "hq_idx": hq_idx,
@@ -161,41 +182,47 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
             "mask": mask,
         }
 
+class CelebAFeatureDataset(Dataset[CelebAItem]):
+    dataset: CelebADataset
+    feature: Feature | CompositeFeature
+    transform: transforms.Compose | None
+    padding: int
 
-def get_feature_dataset(
-    split: str = "train",
-    feature: Features = Features.eyes,
-    transforms=DEFAULT_TRANSFORMS,
-) -> CelebAFeatureDataset:
-    return CelebAFeatureDataset(
-        root_dir=DATASET,
-        partition_file=os.path.join(DATASET, "list_eval_partition.txt"),
-        mapping_file=os.path.join(DATASET, "CelebA-HQ-to-CelebA-mapping.txt"),
-        split=split,
-        feature_name=feature,
-        transform=transforms,
-    )
+    def __init__(
+        self,
+        dataset: CelebADataset,
+        feature: Feature | CompositeFeature,
+        *,
+        transform=None,
+        padding: int = 20,
+    ):
+        self.dataset = dataset
+        self.transform = transform
+        self.padding = padding
+        self.feature = feature
 
+    def __len__(self):
+        return len(self.dataset)
 
-class CelebAFeatureDatasetFactory:
-    cache: dict[tuple[str, Features], CelebAFeatureDataset] = {}
-    transforms: transforms.Compose
+    def __getitem__(
+        self,
+        index: int,
+    ) -> CelebAItem:
+        item = self.dataset.get(index, feature=self.feature, padding=self.padding)
+        cropped_image = item["cropped_image"]
 
-    def __init__(self, transforms=DEFAULT_TRANSFORMS):
-        self.transforms = transforms
+        if self.transform:
+            cropped_image = self.transform(cropped_image)
 
-    def get_dataset(self, split: str, feature: Features) -> CelebAFeatureDataset:
-        key = (split, feature)
-        if key not in self.cache:
-            self.cache[key] = get_feature_dataset(
-                split=split, feature=feature, transforms=self.transforms
-            )
-        return self.cache[key]
+        return {
+            **item,
+            "cropped_image": cropped_image,
+        }
 
 
 def get_feature_loader(
+    feature: Feature | CompositeFeature,
     split: str = "train",
-    feature: Features = Features.eyes,
     batch_size: int = BATCH_SIZE,
 ) -> DataLoader:
     """Fast loader producer."""
@@ -209,7 +236,11 @@ def get_feature_loader(
             "mask": np.array([item["mask"] for item in batch]),
         }
 
-    dataset = get_feature_dataset(split=split, feature=feature)
+    dataset = CelebAFeatureDataset(
+        dataset=CelebADataset(split=split),
+        feature=feature,
+        transform=DEFAULT_TRANSFORMS,
+    )
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -220,7 +251,7 @@ def get_feature_loader(
 
 if __name__ == "__main__":
     # Smoke test
-    eye_loader = get_feature_loader(split="test", feature=Features.eyes)
+    eye_loader = get_feature_loader(split="test", feature=CompositeFeature.eyes)
 
     batch = next(iter(eye_loader))
     logger.info(f"ID images: {batch['hq_idx'][:67]}")

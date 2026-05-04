@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from transformers import CLIPModel, CLIPProcessor
 
 from src.constants import BATCH_SIZE, CLIP_MODEL_NAME, DATASET
-from src.data_loading import CelebAFeatureDataset, CelebAItem, Features
+from src.data_loading import CelebAFeatureDataset, CelebAItem, Feature, CelebADataset
 
 
 class CLIPInference:
@@ -186,11 +186,8 @@ if __name__ == "__main__":
     from src.data_loading import CelebAFeatureDataset
 
     dataset = CelebAFeatureDataset(
-        root_dir=DATASET,
-        partition_file=f"{DATASET}/list_eval_partition.txt",
-        mapping_file=f"{DATASET}/CelebA-HQ-to-CelebA-mapping.txt",
-        split="test",
-        feature_name=Features.nose,
+        dataset=CelebADataset(split="test"),
+        feature=Feature.nose,
         transform=None,  # no transforms for CLIP!!!
     )
 
