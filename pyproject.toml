@@ -24,4 +24,13 @@ dependencies = [
     "lightning>=2.6.1",
     "blobfile>=3.2.0",
     "datasets>=4.8.5",
+    "loguru>=0.7.3",
+    "pyqt6>=6.11.0",
+    "opencv-contrib-python>=4.13.0.92",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+    "ty>=0.0.34",
 ]
