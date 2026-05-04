@@ -10,6 +10,7 @@ from src.data_loading import (
     CELEB_HQ_SIZE,
     CelebADataset,
     CompositeFeature,
+    Feature,
     FeatureType,
     get_base_features,
 )
@@ -34,16 +35,30 @@ class Substitution:
         feature_parts = get_base_features(feature)
         substituted_image = image
 
+        is_composite = isinstance(feature, CompositeFeature)
+
         for feature_part in feature_parts:
             src_item = self.dataset.get(src_idx, feature=feature_part, padding=0)
             dest_item = self.dataset.get(dest_idx, feature=feature_part, padding=0)
 
             src_mask, dest_mask = src_item["mask"], dest_item["mask"]
             if src_mask is None or dest_mask is None:
+                if is_composite:
+                    logger.warning(
+                        f"Skipping feature part {feature_part} due to missing mask."
+                    )
+                    continue
+
                 raise ValueError("One of the items does not have a mask.")
 
             src_bbox, dest_bbox = src_item["bbox"], dest_item["bbox"]
             if src_bbox is None or dest_bbox is None:
+                if is_composite:
+                    logger.warning(
+                        f"Skipping feature part {feature_part} due to missing bounding box."
+                    )
+                    continue
+
                 raise ValueError("One of the items does not have a bounding box.")
 
             src_image = src_item["full_image"]
@@ -60,6 +75,7 @@ class Substitution:
                 dest_mask=dest_mask,
                 src_bbox=src_bbox,
                 dest_bbox=dest_bbox,
+                plot_points=plot_points,
             )
 
         return assert_not_none(substituted_image)
@@ -172,17 +188,17 @@ class Substitution:
             pt_centroid = (float(cx), float(cy))
 
             # Rotated bounding box
-            rect = cv2.minAreaRect(c)
-            box = cv2.boxPoints(rect).astype(np.float32)
+            # rect = cv2.minAreaRect(c)
+            # box = cv2.boxPoints(rect).astype(np.float32)
 
-            s = box.sum(axis=1)
-            diff = np.diff(box, axis=1)
+            # s = box.sum(axis=1)
+            # diff = np.diff(box, axis=1)
 
-            t = tuple[float, float]
-            pt_rbb_tl = cast(t, tuple(map(float, box[np.argmin(s)])))
-            pt_rbb_br = cast(t, tuple(map(float, box[np.argmax(s)])))
-            pt_rbb_tr = cast(t, tuple(map(float, box[np.argmin(diff)])))
-            pt_rbb_bl = cast(t, tuple(map(float, box[np.argmax(diff)])))
+            # t = tuple[float, float]
+            # pt_rbb_tl = cast(t, tuple(map(float, box[np.argmin(s)])))
+            # pt_rbb_br = cast(t, tuple(map(float, box[np.argmax(s)])))
+            # pt_rbb_tr = cast(t, tuple(map(float, box[np.argmin(diff)])))
+            # pt_rbb_bl = cast(t, tuple(map(float, box[np.argmax(diff)])))
 
             return [
                 pt_bb_tl,
@@ -190,10 +206,10 @@ class Substitution:
                 pt_bb_br,
                 pt_bb_bl,
                 pt_centroid,
-                pt_rbb_tl,
-                pt_rbb_tr,
-                pt_rbb_br,
-                pt_rbb_bl,
+                # pt_rbb_tl,
+                # pt_rbb_tr,
+                # pt_rbb_br,
+                # pt_rbb_bl,
             ]
 
         src_keypoints = extract_keypoints(src_mask, src_bbox)
@@ -203,7 +219,9 @@ class Substitution:
         dest_duplicate_pos = get_invalid_keypoints_indices(dest_keypoints)
 
         unique_positions = (
-            set(range(9)) - set(src_duplicate_pos) - set(dest_duplicate_pos)
+            set(range(len(src_keypoints)))
+            - set(src_duplicate_pos)
+            - set(dest_duplicate_pos)
         )
         logger.debug(
             f"Found {len(unique_positions)} unique keypoint positions after removing duplicates."
@@ -221,12 +239,14 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
     substitution = Substitution(dataset)
 
-    src_idx = 0
-    dest_idx = 1
-    feature = CompositeFeature.eyes
+    src_idx = 1
+    dest_idx = 3
+    feature = Feature.nose
 
     src_img = dataset.get(src_idx, feature=feature)["full_image"]
     dest_img = dataset.get(dest_idx, feature=feature)["full_image"]
 
-    result_image = substitution.substitute(src_idx, dest_idx, feature, plot_points=True)
+    result_image = substitution.substitute(
+        src_idx, dest_idx, feature, plot_points=False
+    )
     show_substitution(src_img, dest_img, result_image)
