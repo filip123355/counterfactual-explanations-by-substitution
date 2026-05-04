@@ -12,6 +12,10 @@ from src.data_loading import CELEB_HQ_SIZE
 
 class FaceKeypointDetector:
     is_global_detector: bool
+    keypoint_min_dist: float
+
+    def __init__(self, keypoint_min_dist: float = 30.0):
+        self.keypoint_min_dist = keypoint_min_dist
 
     @abstractmethod
     def get_keypoints(
@@ -55,7 +59,7 @@ class FaceKeypointDetector:
         )
 
     def _get_invalid_keypoints_indices(
-        self, keypoints: list[tuple[float, float]], min_dist: float = 30.0
+        self, keypoints: list[tuple[float, float]]
     ) -> list[int]:
         invalid_positions = []
         accepted_keypoints = []
@@ -70,7 +74,7 @@ class FaceKeypointDetector:
             is_too_close = False
             for akp in accepted_keypoints:
                 dist_sq = (x - akp[0]) ** 2 + (y - akp[1]) ** 2
-                if dist_sq < min_dist**2:
+                if dist_sq < self.keypoint_min_dist**2:
                     is_too_close = True
                     break
 
@@ -84,6 +88,9 @@ class FaceKeypointDetector:
 
 class BoundingBoxKeypointDetector(FaceKeypointDetector):
     is_global_detector = False
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def get_keypoints(
         self,
@@ -145,7 +152,9 @@ class MediapipeFaceKeypointDetector(FaceKeypointDetector):
     is_global_detector = True
     detector: mp.tasks.vision.FaceLandmarker
 
-    def __init__(self):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
         base_options = mp.tasks.BaseOptions(model_asset_path=FACE_LANDMARK_MODEL_PATH)
         options = mp.tasks.vision.FaceLandmarkerOptions(
             base_options=base_options,
