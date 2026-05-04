@@ -27,6 +27,7 @@ dependencies = [
     "loguru>=0.7.3",
     "pyqt6>=6.11.0",
     "opencv-contrib-python>=4.13.0.92",
+    "mediapipe>=0.10.35",
 ]
 
 [dependency-groups]

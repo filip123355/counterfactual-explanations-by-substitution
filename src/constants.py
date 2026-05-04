@@ -12,6 +12,7 @@ except Exception as e:
     print(f"Error loading .env file: {e}")
 
 DATASET: str = config("DATA_PATH")
+FACE_LANDMARK_MODEL_PATH: str = config("FACE_LANDMARK_MODEL_PATH")
 
 # Training parameters
 BATCH_SIZE = 64
