@@ -25,8 +25,8 @@ dependencies = [
     "blobfile>=3.2.0",
     "datasets>=4.8.5",
     "loguru>=0.7.3",
-    "opencv-python>=4.13.0.92",
     "pyqt6>=6.11.0",
+    "opencv-contrib-python>=4.13.0.92",
 ]
 
 [dependency-groups]

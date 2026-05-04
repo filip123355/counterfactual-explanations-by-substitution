@@ -31,6 +31,7 @@ class CelebAItem(TypedDict):
     bbox: tuple[int, int, int, int] | None
     mask: np.ndarray | None
 
+
 class Feature(StrEnum):
     skin = "skin"
     l_brow = "l_brow"
@@ -51,6 +52,7 @@ class Feature(StrEnum):
     hair = "hair"
     hat = "hat"
 
+
 class CompositeFeature(StrEnum):
     eyes = "eyes"
     eyebrows = "eyebrows"
@@ -58,6 +60,19 @@ class CompositeFeature(StrEnum):
     ears = "ears"
     accessories = "accessories"
     face_full = "face_full"
+
+
+FeatureType = Feature | CompositeFeature
+
+
+def get_base_features(feature: FeatureType) -> list[Feature]:
+    if isinstance(feature, Feature):
+        return [feature]
+    elif isinstance(feature, CompositeFeature):
+        return CelebADataset.FEATURE_MAP[feature]
+    else:
+        raise ValueError(f"Invalid feature type: {feature}")
+
 
 class CelebADataset:
     root_dir: str
@@ -101,7 +116,7 @@ class CelebADataset:
     def _get_bbox_and_mask(
         self,
         hq_idx: int,
-        feature: Feature | CompositeFeature,
+        feature: FeatureType,
     ) -> tuple[tuple[int, int, int, int], np.ndarray] | None:
         """Generates bounding box coordinates based on the fature-specific mask."""
 
@@ -111,9 +126,7 @@ class CelebADataset:
         folder_idx = hq_idx // 2000
         curr_mask_path = os.path.join(self.mask_dir, str(folder_idx))
 
-        feature_parts = self.FEATURE_MAP[feature] if isinstance(feature, CompositeFeature) else [feature]
-
-        for part in feature_parts:
+        for part in get_base_features(feature):
             mask_file = os.path.join(
                 curr_mask_path, f"{hq_idx:05d}_{part}.png"
             )  # Masks are on .png format
@@ -147,7 +160,7 @@ class CelebADataset:
     def get(
         self,
         index: int,
-        feature: Feature | CompositeFeature,
+        feature: FeatureType,
         padding: int = 20,
     ) -> CelebAItem:
         hq_idx = self.data.iloc[index]["idx"]
@@ -182,6 +195,7 @@ class CelebADataset:
             "mask": mask,
         }
 
+
 class CelebAFeatureDataset(Dataset[CelebAItem]):
     dataset: CelebADataset
     feature: Feature | CompositeFeature
@@ -191,7 +205,7 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
     def __init__(
         self,
         dataset: CelebADataset,
-        feature: Feature | CompositeFeature,
+        feature: FeatureType,
         *,
         transform=None,
         padding: int = 20,
@@ -221,7 +235,7 @@ class CelebAFeatureDataset(Dataset[CelebAItem]):
 
 
 def get_feature_loader(
-    feature: Feature | CompositeFeature,
+    feature: FeatureType,
     split: str = "train",
     batch_size: int = BATCH_SIZE,
 ) -> DataLoader:

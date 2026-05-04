@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from transformers import CLIPModel, CLIPProcessor
 
 from src.constants import BATCH_SIZE, CLIP_MODEL_NAME, DATASET
-from src.data_loading import CelebAFeatureDataset, CelebAItem, Feature, CelebADataset
+from src.data_loading import CelebADataset, CelebAFeatureDataset, CelebAItem, Feature
 
 
 class CLIPInference:

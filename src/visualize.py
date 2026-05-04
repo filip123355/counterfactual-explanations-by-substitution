@@ -1,7 +1,12 @@
 import matplotlib.pyplot as plt
 from PIL import Image
 
-from src.data_loading import CelebAItem, CompositeFeature, CelebAFeatureDataset, CelebADataset
+from src.data_loading import (
+    CelebADataset,
+    CelebAFeatureDataset,
+    CelebAItem,
+    CompositeFeature,
+)
 
 
 def show_bbox_and_mask(item: CelebAItem):
@@ -26,6 +31,22 @@ def show_bbox_and_mask(item: CelebAItem):
         axes[1].imshow(masked_image)
         axes[1].set_title("Masked Image")
 
+    plt.tight_layout()
+    plt.show()
+
+
+def show_substitution(
+    src_image: Image.Image,
+    dest_image: Image.Image,
+    substituted_image: Image.Image,
+):
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    axes[0].imshow(src_image)
+    axes[0].set_title("Source Image")
+    axes[1].imshow(dest_image)
+    axes[1].set_title("Destination Image")
+    axes[2].imshow(substituted_image)
+    axes[2].set_title("Substituted Image")
     plt.tight_layout()
     plt.show()
 
