@@ -15,21 +15,26 @@ from src.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
 from src.utils import assert_not_none
 from src.visualize import show_substitution
 
+FEATURE_INFLATION: dict[FeatureType, int] = {
+    CompositeFeature.eyes: 10,
+}
+
 
 class Substitution:
     dataset: CelebADataset
     face_keypoint_detector: FaceKeypointDetector
+    tps_padding: int
 
     def __init__(
         self,
         dataset: CelebADataset,
         face_keypoint_detector: FaceKeypointDetector,
         *,
-        padding: int = 20,
+        tps_padding: int = 20,
     ):
         self.dataset = dataset
         self.face_keypoint_detector = face_keypoint_detector
-        self.padding = padding
+        self.tps_padding = tps_padding
 
     def substitute(
         self,
@@ -59,8 +64,16 @@ class Substitution:
             tps = self._compute_warp(src_global_keypoints, dest_global_keypoints)
 
         for feature_part in feature_parts:
-            src_item = self.dataset.get(src_idx, feature=feature_part, padding=0)
-            dest_item = self.dataset.get(dest_idx, feature=feature_part, padding=0)
+            inflation = FEATURE_INFLATION.get(
+                feature_part, FEATURE_INFLATION.get(feature, 0)
+            )
+
+            src_item = self.dataset.get(
+                src_idx, feature=feature_part, padding=0, inflate_mask=inflation
+            )
+            dest_item = self.dataset.get(
+                dest_idx, feature=feature_part, padding=0, inflate_mask=inflation
+            )
 
             src_mask, dest_mask = src_item["mask"], dest_item["mask"]
             if src_mask is None or dest_mask is None:
@@ -165,10 +178,10 @@ class Substitution:
         warped_src_mask = tps.warpImage(src_mask)
 
         inflated_bbox = (
-            max(dest_bbox[0] - self.padding, 0),
-            min(dest_bbox[1] + self.padding, dest_img_np.shape[0]),
-            max(dest_bbox[2] - self.padding, 0),
-            min(dest_bbox[3] + self.padding, dest_img_np.shape[1]),
+            max(dest_bbox[0] - self.tps_padding, 0),
+            min(dest_bbox[1] + self.tps_padding, dest_img_np.shape[0]),
+            max(dest_bbox[2] - self.tps_padding, 0),
+            min(dest_bbox[3] + self.tps_padding, dest_img_np.shape[1]),
         )
 
         alpha = warped_src_mask.astype(np.float32) / 255.0
@@ -235,14 +248,19 @@ if __name__ == "__main__":
     face_keypoint_detector = MediapipeFaceKeypointDetector()
     substitution = Substitution(dataset, face_keypoint_detector)
 
-    src_idx = 0
-    dest_idx = 4
-    feature = Feature.nose
+    for src_idx in range(10):
+        for dest_idx in range(10, 20):
+            feature = CompositeFeature.eyes
 
-    src_img = dataset.get(src_idx, feature=feature)["full_image"]
-    dest_img = dataset.get(dest_idx, feature=feature)["full_image"]
+            src_img = dataset.get(src_idx, feature=feature)["full_image"]
+            dest_img = dataset.get(dest_idx, feature=feature)["full_image"]
 
-    result_image = substitution.substitute(
-        src_idx, dest_idx, feature, plot_points=False
-    )
-    show_substitution(src_img, dest_img, result_image)
+            result_image = substitution.substitute(
+                src_idx, dest_idx, feature, plot_points=False
+            )
+            show_substitution(
+                src_img,
+                dest_img,
+                result_image,
+                save_path=f"results/{src_idx}_{dest_idx}.png",
+            )

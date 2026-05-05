@@ -114,9 +114,7 @@ class CelebADataset:
         self.data = merged[merged["split"] == split_map[split]].copy()
 
     def _get_bbox_and_mask(
-        self,
-        hq_idx: int,
-        feature: FeatureType,
+        self, hq_idx: int, feature: FeatureType, inflate_mask: int = 0
     ) -> tuple[tuple[int, int, int, int], np.ndarray] | None:
         """Generates bounding box coordinates based on the fature-specific mask."""
 
@@ -141,6 +139,9 @@ class CelebADataset:
         if combined_mask is None or np.max(combined_mask) == 0:
             return None
 
+        if inflate_mask > 0:
+            combined_mask = self._inflate_mask(combined_mask, inflate_mask)
+
         combined_mask_bgr = cv2.cvtColor(combined_mask, cv2.COLOR_GRAY2BGR)
         combined_mask_bgr = cv2.resize(
             combined_mask_bgr, CELEB_HQ_SIZE, interpolation=cv2.INTER_NEAREST
@@ -161,13 +162,17 @@ class CelebADataset:
         self,
         index: int,
         feature: FeatureType,
+        *,
         padding: int = 20,
+        inflate_mask: int = 0,
     ) -> CelebAItem:
         hq_idx = self.data.iloc[index]["idx"]
         img_path = os.path.join(self.img_dir, f"{hq_idx}.jpg")
 
         full_image = Image.open(img_path).convert("RGB")
-        bbox_and_mask = self._get_bbox_and_mask(hq_idx, feature)
+        bbox_and_mask = self._get_bbox_and_mask(
+            hq_idx, feature, inflate_mask=inflate_mask
+        )
 
         if bbox_and_mask is None:
             cropped_image = None
@@ -194,6 +199,16 @@ class CelebADataset:
             "bbox": bbox,
             "mask": mask,
         }
+
+    def _inflate_mask(self, mask: np.ndarray, inflation_pixels: int) -> np.ndarray:
+        kernel_size = inflation_pixels * 2 + 1
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)
+        )
+
+        inflated_mask = cv2.dilate(mask, kernel, iterations=1)
+
+        return inflated_mask
 
 
 class CelebAFeatureDataset(Dataset[CelebAItem]):

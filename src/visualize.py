@@ -39,6 +39,7 @@ def show_substitution(
     src_image: Image.Image,
     dest_image: Image.Image,
     substituted_image: Image.Image,
+    save_path: str | None = None,
 ):
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     axes[0].imshow(src_image)
@@ -48,7 +49,11 @@ def show_substitution(
     axes[2].imshow(substituted_image)
     axes[2].set_title("Substituted Image")
     plt.tight_layout()
-    plt.show()
+
+    if save_path is None:
+        plt.show()
+    else:
+        plt.savefig(save_path)
 
 
 if __name__ == "__main__":
