@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 import cv2
 import numpy as np
 import torch
@@ -15,6 +17,7 @@ from src.constants import (
     INTERVAL,
     MODEL_KWARGS,
     OT_ODE,
+    STEP_SIZE,
     T0,
     USE_FP16,
     T,
@@ -40,6 +43,12 @@ def make_beta_schedule(n_timestep: int, linear_start: float, linear_end: float):
         ** 2
     )
     return betas.numpy()
+
+
+class SampleType(StrEnum):
+    DDPM = "ddpm"
+    CDDB = "cddb"
+    CDDB_DEEP = "cddb_deep"
 
 
 class I2SB:
@@ -106,14 +115,15 @@ class I2SB:
             pred_x0.clamp_(-1.0, 1.0)
         return pred_x0
 
-    @torch.no_grad()
-    def _ddpm_sampling(
+    def _run_sampling(
         self,
+        sampler_type: SampleType,
         x0: torch.Tensor,
         x1: torch.Tensor,
-        mask: torch.Tensor | None = None,
+        mask: torch.Tensor,
         nfe: int | None = None,
         tau: float = 1.0,
+        step_size: float = STEP_SIZE,
     ) -> torch.Tensor:
         nfe = nfe or INTERVAL - 1
         assert 0 < nfe < INTERVAL == len(self.diffusion.betas)
@@ -123,7 +133,6 @@ class I2SB:
         x1 = x1.to(self.device)
 
         start_step = int(tau * (INTERVAL - 1))
-
         all_steps = util.space_indices(INTERVAL, nfe + 1)
         steps = [s for s in all_steps if s <= start_step]
 
@@ -138,35 +147,66 @@ class I2SB:
         else:
             xt = x1.clone()
 
-        logger.info(f"[DDPM Sampling] interval={INTERVAL}, {nfe=}, {steps=}, {tau=}")
+        logger.info(
+            f"[{sampler_type.value.upper()} Sampling] interval={INTERVAL}, {nfe=}, steps={len(steps) - 1}, {tau=}"
+        )
 
         def pred_x0_fn(xt: torch.Tensor, step: int) -> torch.Tensor:
-            step: torch.Tensor = torch.full(
+            step_tensor = torch.full(
                 (xt.shape[0],), step, device=self.device, dtype=torch.long
             )
-
             xt = xt.float()
 
             with torch.autocast(
                 device_type=self.device.type, dtype=torch.float16, enabled=USE_FP16
             ):
-                out = self.net(xt, step)
+                out = self.net(xt, step_tensor)
 
             out = out.float()
+            return self._compute_pred_x0(
+                step_tensor, xt, out, clip_denoise=CLIP_DENOISE
+            )
 
-            return self._compute_pred_x0(step, xt, out, clip_denoise=CLIP_DENOISE)
+        x1_forw = (1.0 - mask) * x0
 
-        xs = self.diffusion.ddpm_sampling(
-            steps=steps,
-            pred_x0_fn=pred_x0_fn,
-            xt=xt,
-            x1=x1,
-            mask=mask,
-            ot_ode=OT_ODE,
-        )
+        requires_grad = sampler_type in [SampleType.CDDB, SampleType.CDDB_DEEP]
+
+        with torch.set_grad_enabled(requires_grad):
+            if sampler_type == SampleType.DDPM:
+                xs = self.diffusion.ddpm_sampling(
+                    steps=steps,
+                    pred_x0_fn=pred_x0_fn,
+                    xt=xt,
+                    x1=x1,
+                    mask=mask,
+                    ot_ode=OT_ODE,
+                )
+            elif sampler_type == SampleType.CDDB:
+                xs = self.diffusion.dds_sampling(
+                    steps=steps,
+                    pred_x0_fn=pred_x0_fn,
+                    xt=xt,
+                    x1=x1,
+                    x1_forw=x1_forw,
+                    mask=mask,
+                    step_size=step_size,
+                    ot_ode=OT_ODE,
+                )
+            elif sampler_type == SampleType.CDDB_DEEP:
+                xs = self.diffusion.ddpm_dps_sampling(
+                    steps=steps,
+                    pred_x0_fn=pred_x0_fn,
+                    xt=xt,
+                    x1=x1,
+                    x1_forw=x1_forw,
+                    mask=mask,
+                    step_size=step_size,
+                    ot_ode=OT_ODE,
+                )
+            else:
+                raise ValueError(f"Unknown sampler type: {sampler_type}")
 
         assert xs.shape == x1.shape
-
         return xs
 
     def inpaint(
@@ -175,6 +215,7 @@ class I2SB:
         mask: np.ndarray,
         tau: float = 1.0,
         nfe: int | None = None,
+        sampler_type: SampleType = SampleType.CDDB,
     ) -> Image.Image:
         x0 = self.transforms(image).unsqueeze(0).to(self.device)
 
@@ -187,7 +228,8 @@ class I2SB:
         mask = mask / 255.0
 
         x1 = (1.0 - mask) * x0 + mask * torch.randn_like(x0)
-        xs = self._ddpm_sampling(x0=x0, x1=x1, mask=mask, nfe=nfe, tau=tau)
+
+        xs = self._run_sampling(sampler_type, x0=x0, x1=x1, mask=mask, nfe=nfe, tau=tau)
 
         return self.reverse_transforms(xs.squeeze(0).cpu())
 
@@ -212,7 +254,9 @@ if __name__ == "__main__":
     mask = dataset.get(dest_idx, feature=feature, inflate_mask=10)["mask"]
     assert mask is not None
 
-    inp_image = inpainter.inpaint(subst_image, mask, tau=0.4)
+    inp_image = inpainter.inpaint(
+        subst_image, mask, tau=1.0, sampler_type=SampleType.DDPM
+    )
 
     show_inpanting(
         dataset.get(dest_idx, feature=feature)["full_image"], subst_image, inp_image

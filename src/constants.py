@@ -39,6 +39,7 @@ BETA_MAX = 1.0
 USE_FP16 = True
 EMA_DECAY = 0.99
 CLIP_DENOISE = False
+STEP_SIZE = 1.0
 
 MODEL_KWARGS = {
     "attention_resolutions": "32,16,8",

@@ -5,7 +5,7 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
-from typing import Callable
+from typing import Callable, Literal
 
 import numpy as np
 import torch
@@ -106,7 +106,7 @@ class Diffusion(torch.nn.Module):
         pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
         xt: torch.Tensor,
         x1: torch.Tensor,
-        mask: torch.Tensor | None = None,
+        mask: torch.Tensor,
         ot_ode=False,
     ) -> torch.Tensor:
         xs = xt.detach()
@@ -122,13 +122,125 @@ class Diffusion(torch.nn.Module):
             pred_x0 = pred_x0_fn(xs, step)
             xs = self.p_posterior(prev_step, step, xs, pred_x0, ot_ode=ot_ode)
 
-            if mask is not None:
-                xt_true = x1.clone()
-                if not ot_ode:
-                    _prev_step = torch.full((xs.shape[0],), prev_step, dtype=torch.long)
-                    std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=xs.shape[1:])
-                    xt_true = xt_true + std_sb * torch.randn_like(xt_true)
+            xt_true = x1.clone()
+            if not ot_ode:
+                _prev_step = torch.full((xs.shape[0],), prev_step, dtype=torch.long)
+                std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=xs.shape[1:])
+                xt_true = xt_true + std_sb * torch.randn_like(xt_true)
 
-                xs = (1.0 - mask) * xt_true + mask * xs
+            xs = (1.0 - mask) * xt_true + mask * xs
 
         return xs
+
+    def _guided_sampling_core(
+        self,
+        mode: Literal["shallow", "deep"],
+        steps: list[int],
+        pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
+        xt: torch.Tensor,
+        x1: torch.Tensor,
+        x1_forw: torch.Tensor,
+        mask: torch.Tensor,
+        step_size: float = 1.0,
+        ot_ode: bool = False,
+        desc: str = "Guided Sampling",
+    ) -> torch.Tensor:
+        xs = xt.detach()
+
+        steps = steps[::-1]
+        pair_steps = zip(steps[1:], steps[:-1])
+        pair_steps = tqdm(pair_steps, desc=desc, total=len(steps) - 1)
+
+        for prev_step, step in pair_steps:
+            assert prev_step < step, f"{prev_step=}, {step=}"
+
+            xs = xs.detach().requires_grad_()
+            pred_x0 = pred_x0_fn(xs, step)
+
+            corrupt_x0_forw = (1.0 - mask) * pred_x0
+
+            residual = corrupt_x0_forw - x1_forw
+            residual_norm = torch.linalg.norm(residual) ** 2
+
+            std_n = self.std_fwd[step]
+            std_nprev = self.std_fwd[prev_step]
+            std_delta = (std_n**2 - std_nprev**2).sqrt()
+            mu_x0, _, _ = compute_gaussian_product_coef(std_nprev, std_delta)
+
+            if mode == "shallow":
+                norm_grad = torch.autograd.grad(outputs=residual_norm, inputs=pred_x0)[
+                    0
+                ]
+                xs_next = self.p_posterior(prev_step, step, xs, pred_x0, ot_ode=ot_ode)
+                xs = xs_next - (mu_x0 * step_size * norm_grad)
+
+            elif mode == "deep":
+                norm_grad = torch.autograd.grad(outputs=residual_norm, inputs=xs)[0]
+                xs = xs - (mu_x0 * step_size * norm_grad)
+                xs = self.p_posterior(prev_step, step, xs, pred_x0, ot_ode=ot_ode)
+                del norm_grad
+
+            xs.detach_()
+            pred_x0.detach_()
+
+            xt_true = x1.clone()
+            if not ot_ode:
+                _prev_step = torch.full(
+                    (xs.shape[0],), prev_step, dtype=torch.long, device=xs.device
+                )
+                std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=xs.shape[1:])
+                xt_true = xt_true + std_sb * torch.randn_like(xt_true)
+
+            xs = (1.0 - mask) * xt_true + mask * xs
+
+        return xs
+
+    def dds_sampling(
+        self,
+        *,
+        steps: list[int],
+        pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
+        xt: torch.Tensor,
+        x1: torch.Tensor,
+        x1_forw: torch.Tensor,
+        mask: torch.Tensor,
+        step_size: float = 1.0,
+        ot_ode=False,
+    ) -> torch.Tensor:
+        return self._guided_sampling_core(
+            mode="shallow",
+            steps=steps,
+            pred_x0_fn=pred_x0_fn,
+            xt=xt,
+            x1=x1,
+            x1_forw=x1_forw,
+            mask=mask,
+            step_size=step_size,
+            ot_ode=ot_ode,
+            desc="CDDB (Shallow) sampling",
+        )
+
+    def ddpm_dps_sampling(
+        self,
+        *,
+        steps: list[int],
+        pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
+        xt: torch.Tensor,
+        x1: torch.Tensor,
+        x1_forw: torch.Tensor,
+        mask: torch.Tensor,
+        step_size: float = 1.0,
+        ot_ode=False,
+    ) -> torch.Tensor:
+        return self._guided_sampling_core(
+            mode="deep",
+            steps=steps,
+            pred_x0_fn=pred_x0_fn,
+            xt=xt,
+            x1=x1,
+            x1_forw=x1_forw,
+            mask=mask,
+            step_size=step_size,
+            ot_ode=ot_ode,
+            desc="CDDB-Deep (DPS) sampling",
+        )

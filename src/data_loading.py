@@ -15,7 +15,7 @@ from src.constants import BATCH_SIZE, DATASET, IMAGENET_MEAN, IMAGENET_STD
 
 DEFAULT_TRANSFORMS = transforms.Compose(
     [
-        transforms.Resize((256, 256)),
+        transforms.Resize((512, 512)),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ]
