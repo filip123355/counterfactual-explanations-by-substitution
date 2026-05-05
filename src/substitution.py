@@ -154,6 +154,13 @@ class Substitution:
         src_img_np = np.array(src_image)
         dest_img_np = np.array(dest_image)
 
+        src_img_np = self._transfer_color(
+            src_img=src_img_np,
+            dest_img=dest_img_np,
+            src_mask=src_mask,
+            dest_mask=dest_mask,
+        )
+
         warped_src_img = tps.warpImage(src_img_np)
         warped_src_mask = tps.warpImage(src_mask)
 
@@ -194,6 +201,32 @@ class Substitution:
         tps.estimateTransformation(dest_keypoints, src_keypoints, matches)
 
         return tps
+
+    def _transfer_color(
+        self,
+        *,
+        src_img: np.ndarray,
+        dest_img: np.ndarray,
+        src_mask: np.ndarray,
+        dest_mask: np.ndarray,
+    ) -> np.ndarray:
+        src_lab = cv2.cvtColor(src_img, cv2.COLOR_RGB2LAB).astype(np.float32)
+        dest_lab = cv2.cvtColor(dest_img, cv2.COLOR_RGB2LAB).astype(np.float32)
+
+        src_mean, src_std = cv2.meanStdDev(src_lab, mask=src_mask)
+        dest_mean, dest_std = cv2.meanStdDev(dest_lab, mask=dest_mask)
+
+        src_mean = src_mean.reshape(1, 1, 3)
+        src_std = src_std.reshape(1, 1, 3)
+        dest_mean = dest_mean.reshape(1, 1, 3)
+        dest_std = dest_std.reshape(1, 1, 3)
+
+        result_lab = (src_lab - src_mean) * (dest_std / src_std) + dest_mean
+
+        result_lab = np.clip(result_lab, 0, 255).astype(np.uint8)
+        result_rgb = cv2.cvtColor(result_lab, cv2.COLOR_LAB2RGB)
+
+        return result_rgb
 
 
 if __name__ == "__main__":

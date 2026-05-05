@@ -154,7 +154,7 @@ class MediapipeFaceKeypointDetector(FaceKeypointDetector):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         base_options = mp.tasks.BaseOptions(model_asset_path=FACE_LANDMARK_MODEL_PATH)
         options = mp.tasks.vision.FaceLandmarkerOptions(
             base_options=base_options,
