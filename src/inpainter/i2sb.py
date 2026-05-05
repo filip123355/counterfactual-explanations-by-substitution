@@ -11,6 +11,7 @@ from src.constants import (
     BETA_MAX,
     CLIP_DENOISE,
     EMA_DECAY,
+    I2SB_MODEL_PATH,
     INTERVAL,
     MODEL_KWARGS,
     OT_ODE,
@@ -22,7 +23,7 @@ from src.data_loading import (
     DEFAULT_REVERSE_TRANSFORM,
     DEFAULT_TRANSFORMS,
     CelebADataset,
-    Feature,
+    CompositeFeature,
 )
 from src.inpainter.diffusion import Diffusion
 from src.inpainter.network import Image256Net
@@ -52,7 +53,7 @@ class I2SB:
     def __init__(
         self,
         *,
-        ckpt_path: str,
+        ckpt_path: str = I2SB_MODEL_PATH,
         device: torch.device,
         transforms=DEFAULT_TRANSFORMS,
         reverse_transforms=DEFAULT_REVERSE_TRANSFORM,
@@ -159,6 +160,7 @@ class I2SB:
             steps=steps,
             pred_x0_fn=pred_x0_fn,
             xt=xt,
+            x1=x1,
             mask=mask,
             ot_ode=OT_ODE,
         )
@@ -182,6 +184,7 @@ class I2SB:
         mask: torch.Tensor = torch.from_numpy(mask).to(torch.float32).to(self.device)
         mask = mask.to(self.device)
         mask = mask.unsqueeze(0).unsqueeze(0)
+        mask = mask / 255.0
 
         x1 = (1.0 - mask) * x0 + mask * torch.randn_like(x0)
         xs = self._ddpm_sampling(x0=x0, x1=x1, mask=mask, nfe=nfe, tau=tau)
@@ -191,12 +194,11 @@ class I2SB:
 
 if __name__ == "__main__":
     src_idx = 0
-    dest_idx = 10
-    feature = Feature.nose
+    dest_idx = 13
+    feature = CompositeFeature.eyes
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     inpainter = I2SB(
-        ckpt_path="data/i2sb.pt",
         device=device,
     )
 
@@ -207,9 +209,11 @@ if __name__ == "__main__":
 
     subst_image = substitution.substitute(src_idx, dest_idx, feature)
 
-    mask = dataset.get(dest_idx, feature=feature)["mask"]
+    mask = dataset.get(dest_idx, feature=feature, inflate_mask=10)["mask"]
     assert mask is not None
 
-    inp_image = inpainter.inpaint(subst_image, mask, tau=0.7, nfe=100)
+    inp_image = inpainter.inpaint(subst_image, mask, tau=0.4)
 
-    show_inpanting(subst_image, inp_image)
+    show_inpanting(
+        dataset.get(dest_idx, feature=feature)["full_image"], subst_image, inp_image
+    )

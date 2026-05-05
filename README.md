@@ -10,3 +10,9 @@ Set `FACE_LANDMARK_MODEL_PATH` to model file for mediapipe face landmark detecti
 ```bash
 wget -O face_landmarker_v2_with_blendshapes.task -q https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 ```
+
+Set `I2SB_MODEL_PATH` to the model file for the I2SB model from the RCSB repo:
+
+```
+data/weights/inpainters/cddb/celebahq/freeform_20_30/latest.pt
+```

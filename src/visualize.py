@@ -57,15 +57,18 @@ def show_substitution(
 
 
 def show_inpanting(
+    original_image: Image.Image,
     subst_image: Image.Image,
     inp_image: Image.Image,
     save_path: str | None = None,
 ):
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    axes[0].imshow(subst_image)
-    axes[0].set_title("Substituted Image")
-    axes[1].imshow(inp_image)
-    axes[1].set_title("Inpainted Image")
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    axes[0].imshow(original_image)
+    axes[0].set_title("Original Image")
+    axes[1].imshow(subst_image)
+    axes[1].set_title("Substituted Image")
+    axes[2].imshow(inp_image)
+    axes[2].set_title("Inpainted Image")
     plt.tight_layout()
 
     if save_path is None:

@@ -29,6 +29,8 @@ MODEL_NAME = "google/vit-base-patch16-224"
 
 # I2SB
 
+I2SB_MODEL_PATH = config("I2SB_MODEL_PATH")
+
 INTERVAL = 1000
 T = 1.0
 T0 = 0.0001

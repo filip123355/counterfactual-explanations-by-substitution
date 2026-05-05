@@ -105,10 +105,11 @@ class Diffusion(torch.nn.Module):
         steps: list[int],
         pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
         xt: torch.Tensor,
+        x1: torch.Tensor,
         mask: torch.Tensor | None = None,
         ot_ode=False,
     ) -> torch.Tensor:
-        xt = xt.detach()
+        xs = xt.detach()
 
         steps = steps[::-1]
 
@@ -118,16 +119,16 @@ class Diffusion(torch.nn.Module):
         for prev_step, step in pair_steps:
             assert prev_step < step, f"{prev_step=}, {step=}"
 
-            pred_x0 = pred_x0_fn(xt, step)
-            xt = self.p_posterior(prev_step, step, xt, pred_x0, ot_ode=ot_ode)
+            pred_x0 = pred_x0_fn(xs, step)
+            xs = self.p_posterior(prev_step, step, xs, pred_x0, ot_ode=ot_ode)
 
             if mask is not None:
-                xt_true = xt
+                xt_true = x1.clone()
                 if not ot_ode:
-                    _prev_step = torch.full((xt.shape[0],), prev_step, dtype=torch.long)
-                    std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=xt.shape[1:])
+                    _prev_step = torch.full((xs.shape[0],), prev_step, dtype=torch.long)
+                    std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=xs.shape[1:])
                     xt_true = xt_true + std_sb * torch.randn_like(xt_true)
 
-                xt = (1.0 - mask) * xt_true + mask * xt
+                xs = (1.0 - mask) * xt_true + mask * xs
 
-        return xt
+        return xs

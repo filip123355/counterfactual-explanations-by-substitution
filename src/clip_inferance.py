@@ -207,13 +207,13 @@ if __name__ == "__main__":
     from src.data_loading import CelebAFeatureDataset
 
     dataset = CelebAFeatureDataset(
-        dataset=CelebADataset(split="test"),
-        feature=CompositeFeature.eyes,
+        dataset=CelebADataset(split="train"),
+        feature=CompositeFeature.mouth,
         transform=None,  # no transforms for CLIP!!!
     )
 
     find_results = clip.find_top_k_similar(
-        query_images=f"{DATASET}/CelebA-HQ-img/0.jpg", reference_images=dataset, k=1000
+        query_images=f"{DATASET}/CelebA-HQ-img/0.jpg", reference_images=dataset, k=10000
     )
     logger.info(f"Top-5 indices: {find_results['indices']}")
     logger.info(f"Top-5 scores: {find_results['scores']}")
