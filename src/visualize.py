@@ -56,6 +56,24 @@ def show_substitution(
         plt.savefig(save_path)
 
 
+def show_inpanting(
+    subst_image: Image.Image,
+    inp_image: Image.Image,
+    save_path: str | None = None,
+):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].imshow(subst_image)
+    axes[0].set_title("Substituted Image")
+    axes[1].imshow(inp_image)
+    axes[1].set_title("Inpainted Image")
+    plt.tight_layout()
+
+    if save_path is None:
+        plt.show()
+    else:
+        plt.savefig(save_path)
+
+
 def show_top_k_similar(
     query_image: Image.Image,
     top_k_images: list[Image.Image],

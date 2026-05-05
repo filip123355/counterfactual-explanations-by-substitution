@@ -1,0 +1,133 @@
+# ---------------------------------------------------------------
+# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
+#
+# This work is licensed under the NVIDIA Source Code License
+# for I2SB. To view a copy of this license, see the LICENSE file.
+# ---------------------------------------------------------------
+
+from typing import Callable
+
+import numpy as np
+import torch
+from tqdm import tqdm
+
+from src.utils import unsqueeze_xdim
+
+
+def compute_gaussian_product_coef(sigma1, sigma2):
+    """Given p1 = N(x_t|x_0, sigma_1**2) and p2 = N(x_t|x_1, sigma_2**2)
+    return p1 * p2 = N(x_t| coef1 * x0 + coef2 * x1, var)"""
+
+    denom = sigma1**2 + sigma2**2
+    coef1 = sigma2**2 / denom
+    coef2 = sigma1**2 / denom
+    var = (sigma1**2 * sigma2**2) / denom
+
+    return coef1, coef2, var
+
+
+class Diffusion(torch.nn.Module):
+    betas: torch.Tensor
+    std_fwd: torch.Tensor
+    std_bwd: torch.Tensor
+    std_sb: torch.Tensor
+    mu_x0: torch.Tensor
+    mu_x1: torch.Tensor
+
+    def __init__(self, betas):
+        super().__init__()
+
+        # compute analytic std: eq 11
+        std_fwd = torch.from_numpy(np.sqrt(np.cumsum(betas)))
+        std_bwd = torch.from_numpy(np.sqrt(np.flip(np.cumsum(np.flip(betas)))))
+
+        mu_x0, mu_x1, var = compute_gaussian_product_coef(std_fwd, std_bwd)
+        std_sb = var.sqrt()
+
+        self.betas = torch.from_numpy(betas).float()
+        self.register_buffer("std_fwd", std_fwd)
+        self.register_buffer("std_bwd", std_bwd)
+        self.register_buffer("std_sb", std_sb)
+        self.register_buffer("mu_x0", mu_x0)
+        self.register_buffer("mu_x1", mu_x1)
+
+    def get_std_fwd(self, step: int | torch.Tensor, xdim=None):
+        std_fwd = self.std_fwd[step]
+        return std_fwd if xdim is None else unsqueeze_xdim(std_fwd, xdim)
+
+    def q_sample(
+        self, step: int | torch.Tensor, x0: torch.Tensor, x1: torch.Tensor, ot_ode=False
+    ):
+        """Sample q(x_t | x_0, x_1), i.e. eq 11"""
+
+        assert x0.shape == x1.shape
+        batch, *xdim = x0.shape
+
+        mu_x0 = unsqueeze_xdim(self.mu_x0[step], xdim)
+        mu_x1 = unsqueeze_xdim(self.mu_x1[step], xdim)
+        std_sb = unsqueeze_xdim(self.std_sb[step], xdim)
+
+        xt = mu_x0 * x0 + mu_x1 * x1
+        if not ot_ode:
+            xt = xt + std_sb * torch.randn_like(xt)
+        return xt.detach()
+
+    def p_posterior(
+        self,
+        nprev: int,
+        n: int,
+        x_n: torch.Tensor,
+        x0: torch.Tensor,
+        ot_ode=False,
+        verbose=False,
+    ):
+        """Sample p(x_{nprev} | x_n, x_0), i.e. eq 4"""
+
+        assert nprev < n
+        std_n = self.std_fwd[n]
+        std_nprev = self.std_fwd[nprev]
+        std_delta = (std_n**2 - std_nprev**2).sqrt()
+
+        mu_x0, mu_xn, var = compute_gaussian_product_coef(std_nprev, std_delta)
+
+        xt_prev = mu_x0 * x0 + mu_xn * x_n
+        if not ot_ode and nprev > 0:
+            xt_prev = xt_prev + var.sqrt() * torch.randn_like(xt_prev)
+
+        if verbose:
+            return xt_prev, mu_x0
+        else:
+            return xt_prev
+
+    def ddpm_sampling(
+        self,
+        *,
+        steps: list[int],
+        pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
+        xt: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        ot_ode=False,
+    ) -> torch.Tensor:
+        xt = xt.detach()
+
+        steps = steps[::-1]
+
+        pair_steps = zip(steps[1:], steps[:-1])
+        pair_steps = tqdm(pair_steps, desc="DDPM sampling", total=len(steps) - 1)
+
+        for prev_step, step in pair_steps:
+            assert prev_step < step, f"{prev_step=}, {step=}"
+
+            pred_x0 = pred_x0_fn(xt, step)
+            xt = self.p_posterior(prev_step, step, xt, pred_x0, ot_ode=ot_ode)
+
+            if mask is not None:
+                xt_true = xt
+                if not ot_ode:
+                    _prev_step = torch.full((xt.shape[0],), prev_step, dtype=torch.long)
+                    std_sb = unsqueeze_xdim(self.std_sb[_prev_step], xdim=xt.shape[1:])
+                    xt_true = xt_true + std_sb * torch.randn_like(xt_true)
+
+                xt = (1.0 - mask) * xt_true + mask * xt
+
+        return xt

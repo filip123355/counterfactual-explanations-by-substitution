@@ -15,9 +15,19 @@ from src.constants import BATCH_SIZE, DATASET, IMAGENET_MEAN, IMAGENET_STD
 
 DEFAULT_TRANSFORMS = transforms.Compose(
     [
-        transforms.Resize((224, 224)),
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+    ]
+)
+
+inverse_mean = [-m / s for m, s in zip(IMAGENET_MEAN, IMAGENET_STD)]
+inverse_std = [1 / s for s in IMAGENET_STD]
+
+DEFAULT_REVERSE_TRANSFORM = transforms.Compose(
+    [
+        transforms.Normalize(mean=inverse_mean, std=inverse_std),
+        transforms.ToPILImage(),
     ]
 )
 
