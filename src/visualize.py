@@ -56,6 +56,21 @@ def show_substitution(
         plt.savefig(save_path)
 
 
+def show_top_k_similar(
+    query_image: Image.Image,
+    top_k_images: list[Image.Image],
+):
+    k = len(top_k_images)
+    fig, axes = plt.subplots(1, k + 1, figsize=(5 * (k + 1), 5))
+    axes[0].imshow(query_image)
+    axes[0].set_title("Query Image")
+    for i, img in enumerate(top_k_images):
+        axes[i + 1].imshow(img)
+        axes[i + 1].set_title(f"Top-{i + 1} Similar")
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     dataset = CelebAFeatureDataset(
         dataset=CelebADataset(split="test"),

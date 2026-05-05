@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, TypedDict, Union
 
 import numpy as np
 import torch
@@ -8,7 +8,17 @@ from torch.utils.data import DataLoader
 from transformers import CLIPModel, CLIPProcessor
 
 from src.constants import BATCH_SIZE, CLIP_MODEL_NAME, DATASET
-from src.data_loading import CelebADataset, CelebAFeatureDataset, CelebAItem, Feature
+from src.data_loading import (
+    CelebADataset,
+    CelebAFeatureDataset,
+    CelebAItem,
+    CompositeFeature,
+)
+
+
+class SimilarityResult(TypedDict):
+    indices: np.ndarray
+    scores: np.ndarray | None
 
 
 class CLIPInference:
@@ -105,11 +115,11 @@ class CLIPInference:
         ],
         k: int = 5,
         return_scores: bool = True,
-    ) -> dict:
+    ) -> SimilarityResult:
         similarities = self.compute_similarity(query_images, reference_images)
         top_k_scores, top_k_indices = torch.topk(torch.tensor(similarities), k=k, dim=1)
 
-        result = {"indices": top_k_indices.numpy()}
+        result: SimilarityResult = {"indices": top_k_indices.numpy(), "scores": None}
         if return_scores:
             result["scores"] = top_k_scores.numpy()
 
@@ -119,8 +129,19 @@ class CLIPInference:
     def compute_dataset_embeddings(
         self, dataset: CelebAFeatureDataset, batch_size: int = BATCH_SIZE
     ) -> tuple[np.ndarray, np.ndarray]:
+        def replace_none_with_empty(
+            cropped_image: Image.Image | torch.Tensor | None,
+        ) -> Image.Image:
+            if isinstance(cropped_image, torch.Tensor):
+                raise TypeError(
+                    "Expected cropped_image to be a PIL Image or None, but got a torch.Tensor."
+                )
+            if cropped_image is None:
+                return Image.new("RGB", (224, 224), color="black")
+            return cropped_image
+
         def collate_fn(batch: list[CelebAItem]):
-            images = [item["cropped_image"] for item in batch]
+            images = [replace_none_with_empty(item["cropped_image"]) for item in batch]
             ids = [item["hq_idx"] for item in batch]
             return images, ids
 
@@ -187,12 +208,20 @@ if __name__ == "__main__":
 
     dataset = CelebAFeatureDataset(
         dataset=CelebADataset(split="test"),
-        feature=Feature.nose,
+        feature=CompositeFeature.eyes,
         transform=None,  # no transforms for CLIP!!!
     )
 
     find_results = clip.find_top_k_similar(
-        query_images=f"{DATASET}/CelebA-HQ-img/0.jpg", reference_images=dataset, k=5
+        query_images=f"{DATASET}/CelebA-HQ-img/0.jpg", reference_images=dataset, k=1000
     )
     logger.info(f"Top-5 indices: {find_results['indices']}")
     logger.info(f"Top-5 scores: {find_results['scores']}")
+
+    top_k_images = [dataset[idx]["cropped_image"] for idx in find_results["indices"][0]]
+
+    for idx, img in enumerate(top_k_images):
+        assert isinstance(img, Image.Image), (
+            f"Expected a PIL Image, but got {type(img)}"
+        )
+        img.save(f"results/{idx + 1}.jpg")
