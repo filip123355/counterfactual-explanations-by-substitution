@@ -9,6 +9,7 @@ from torch_ema import ExponentialMovingAverage
 from torchvision import transforms
 
 import src.utils as util
+from src.clip_inferance import load_clip
 from src.constants import (
     BETA_MAX,
     CLIP_DENOISE,
@@ -23,13 +24,13 @@ from src.constants import (
     T,
 )
 from src.data_loading import (
-    DEFAULT_REVERSE_TRANSFORM,
-    DEFAULT_TRANSFORMS,
     CelebADataset,
     CompositeFeature,
 )
 from src.inpainter.diffusion import Diffusion
+from src.inpainter.guidance import CLIPGuidance, Guidance
 from src.inpainter.network import Image256Net
+from src.inpainter.transforms import I2SB_TO_PIL, PIL_TO_I2SB
 from src.keypoints import MediapipeFaceKeypointDetector
 from src.substitution import Substitution
 from src.visualize import show_inpanting
@@ -45,6 +46,9 @@ def make_beta_schedule(n_timestep: int, linear_start: float, linear_end: float):
     return betas.numpy()
 
 
+# Note: I implemented all 3 version but I later noticed that
+# RCSB only used DDPM for Celeb. CDDB and CDDB_DEEP use more VRAM.
+# Only DDPM supports guiding.
 class SampleType(StrEnum):
     DDPM = "ddpm"
     CDDB = "cddb"
@@ -54,22 +58,25 @@ class SampleType(StrEnum):
 class I2SB:
     diffusion: Diffusion
     net: Image256Net
+    guidance: Guidance | None
     ema: ExponentialMovingAverage
-    transforms: transforms.Compose
-    reverse_transforms: transforms.Compose
+    pil_to_i2sb: transforms.Compose
+    i2sb_to_pil: transforms.Compose
     device: torch.device
 
     def __init__(
         self,
         *,
         ckpt_path: str = I2SB_MODEL_PATH,
+        guidance: Guidance | None = None,
         device: torch.device,
-        transforms=DEFAULT_TRANSFORMS,
-        reverse_transforms=DEFAULT_REVERSE_TRANSFORM,
+        pil_to_i2sb=PIL_TO_I2SB,
+        i2sb_to_pil=I2SB_TO_PIL,
     ):
         self.device = device
-        self.transforms = transforms
-        self.reverse_transforms = reverse_transforms
+        self.pil_to_i2sb = pil_to_i2sb
+        self.i2sb_to_pil = i2sb_to_pil
+        self.guidance = guidance
 
         betas = make_beta_schedule(
             n_timestep=INTERVAL, linear_start=T0, linear_end=BETA_MAX / INTERVAL
@@ -169,13 +176,17 @@ class I2SB:
 
         x1_forw = (1.0 - mask) * x0
 
-        requires_grad = sampler_type in [SampleType.CDDB, SampleType.CDDB_DEEP]
+        requires_grad = (
+            sampler_type in [SampleType.CDDB, SampleType.CDDB_DEEP]
+            or self.guidance is not None
+        )
 
         with torch.set_grad_enabled(requires_grad):
             if sampler_type == SampleType.DDPM:
                 xs = self.diffusion.ddpm_sampling(
                     steps=steps,
                     pred_x0_fn=pred_x0_fn,
+                    cond_fn=self.guidance,
                     xt=xt,
                     x1=x1,
                     mask=mask,
@@ -217,7 +228,7 @@ class I2SB:
         nfe: int | None = None,
         sampler_type: SampleType = SampleType.CDDB,
     ) -> Image.Image:
-        x0 = self.transforms(image).unsqueeze(0).to(self.device)
+        x0 = self.pil_to_i2sb(image).unsqueeze(0).to(self.device)
 
         mask = cv2.resize(
             mask, (x0.shape[-1], x0.shape[-2]), interpolation=cv2.INTER_NEAREST
@@ -231,7 +242,7 @@ class I2SB:
 
         xs = self._run_sampling(sampler_type, x0=x0, x1=x1, mask=mask, nfe=nfe, tau=tau)
 
-        return self.reverse_transforms(xs.squeeze(0).cpu())
+        return self.i2sb_to_pil(xs.squeeze(0).cpu())
 
 
 if __name__ == "__main__":
@@ -240,8 +251,11 @@ if __name__ == "__main__":
     feature = CompositeFeature.eyes
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    guidance = CLIPGuidance(load_clip(device=device))
+
     inpainter = I2SB(
         device=device,
+        guidance=guidance,
     )
 
     dataset = CelebADataset(split="test")
@@ -251,11 +265,14 @@ if __name__ == "__main__":
 
     subst_image = substitution.substitute(src_idx, dest_idx, feature)
 
-    mask = dataset.get(dest_idx, feature=feature, inflate_mask=10)["mask"]
-    assert mask is not None
+    dest_mask = dataset.get(dest_idx, feature=feature, inflate_mask=10)["mask"]
+    assert dest_mask is not None
+
+    dest_image = dataset.get(dest_idx, feature=feature)["full_image"]
+    guidance.set_target(dest_image)
 
     inp_image = inpainter.inpaint(
-        subst_image, mask, tau=1.0, sampler_type=SampleType.DDPM
+        subst_image, dest_mask, tau=0.3, sampler_type=SampleType.DDPM
     )
 
     show_inpanting(

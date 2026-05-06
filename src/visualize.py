@@ -63,6 +63,9 @@ def show_inpanting(
     save_path: str | None = None,
 ):
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    subst_image = subst_image.resize(inp_image.size)
+
     axes[0].imshow(original_image)
     axes[0].set_title("Original Image")
     axes[1].imshow(subst_image)
