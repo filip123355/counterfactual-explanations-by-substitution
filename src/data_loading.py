@@ -11,32 +11,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-from src.constants import BATCH_SIZE, DATASET, IMAGENET_MEAN, IMAGENET_STD
-
-# TODO: Czy tu powinno być IMAGENET_MEAN/STD?
-PIL_TO_I2SB = transforms.Compose(
-    [
-        transforms.Resize((512, 512)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-    ]
-)
-
-inverse_mean = [-m / s for m, s in zip(IMAGENET_MEAN, IMAGENET_STD)]
-inverse_std = [1 / s for s in IMAGENET_STD]
-
-I2SB_TO_NORMAL = transforms.Compose(
-    [
-        transforms.Normalize(mean=inverse_mean, std=inverse_std),
-    ]
-)
-
-I2SB_TO_PIL = transforms.Compose(
-    [
-        I2SB_TO_NORMAL,
-        transforms.ToPILImage(),
-    ]
-)
+from src.constants import BATCH_SIZE, DATASET
 
 CELEB_HQ_SIZE = (1024, 1024)
 

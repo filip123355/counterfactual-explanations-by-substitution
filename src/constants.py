@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from decouple import Config, RepositoryEnv
+from loguru import logger
 
 # Data paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +19,7 @@ FACE_LANDMARK_MODEL_PATH: str = config("FACE_LANDMARK_MODEL_PATH")
 BATCH_SIZE = 64
 
 # Other
-IMAGE_TRANSFORM_SIZE = 128
+IMAGE_TRANSFORM_SIZE = 512
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -31,6 +32,8 @@ MODEL_NAME = "google/vit-base-patch16-224"
 # I2SB
 I2SB_MODEL_PATH = config("I2SB_MODEL_PATH")
 USE_HQ = "hq" in I2SB_MODEL_PATH
+
+logger.info(f"Using I2SB model from {I2SB_MODEL_PATH}, USE_HQ={USE_HQ}")
 
 INTERVAL = 1000 if USE_HQ else 500
 T = 1.0

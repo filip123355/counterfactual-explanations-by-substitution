@@ -4,11 +4,12 @@ import torch
 from loguru import logger
 from PIL import Image
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
 from transformers.image_utils import SizeDict
 
 from src.clip_inferance import CLIPInference
 from src.constants import USE_FP16
-from src.data_loading import I2SB_TO_NORMAL, PIL_TO_I2SB
+from src.inpainter.transforms import I2SB_TO_NORMAL, PIL_TO_I2SB
 
 
 class GuidanceFn(Protocol):
@@ -18,17 +19,17 @@ class GuidanceFn(Protocol):
 
 
 class Guidance:
-    transform: transforms.Compose
-    reverse_transform_to_tensor: transforms.Compose
+    pil_to_i2sb: transforms.Compose
+    i2sb_to_normal: transforms.Compose
 
     def __init__(
         self,
         *,
-        transform: transforms.Compose = PIL_TO_I2SB,
-        reverse_transform_to_tensor: transforms.Compose = I2SB_TO_NORMAL,
+        pil_to_i2sb: transforms.Compose = PIL_TO_I2SB,
+        i2sb_to_normal: transforms.Compose = I2SB_TO_NORMAL,
     ):
-        self.transform = transform
-        self.reverse_transform_to_tensor = reverse_transform_to_tensor
+        self.pil_to_i2sb = pil_to_i2sb
+        self.i2sb_to_normal = i2sb_to_normal
 
     def __call__(
         self, *, xt: torch.Tensor, pred_x0: torch.Tensor, t: torch.Tensor | int
@@ -61,8 +62,12 @@ class CLIPGuidance(Guidance):
 
         self.transform_i2sb_to_clip = transforms.Compose(
             [
-                self.reverse_transform_to_tensor,
-                transforms.Resize((clip_size, clip_size)),
+                self.i2sb_to_normal,
+                transforms.Resize(
+                    (clip_size, clip_size),
+                    interpolation=InterpolationMode.BILINEAR,
+                    antialias=True,
+                ),
                 transforms.Normalize(mean=clip_mean, std=clip_std),
             ]
         )

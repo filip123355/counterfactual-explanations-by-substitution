@@ -5,7 +5,7 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
-from typing import Callable, Literal, TypedDict, Unpack
+from typing import Callable, Literal
 
 import numpy as np
 import torch
@@ -14,12 +14,6 @@ from tqdm import tqdm
 from src.constants import GUIDANCE_SCALE
 from src.inpainter.guidance import GuidanceFn
 from src.utils import unsqueeze_xdim
-
-
-class CondFnParams(TypedDict):
-    x_t: torch.Tensor
-    pred_x0: torch.Tensor
-    t: torch.Tensor | int
 
 
 def compute_gaussian_product_coef(sigma1, sigma2):
@@ -111,7 +105,7 @@ class Diffusion(torch.nn.Module):
         self,
         *,
         steps: list[int],
-        pred_x0_fn: Callable[[Unpack[CondFnParams]], torch.Tensor],
+        pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
         xt: torch.Tensor,
         x1: torch.Tensor,
         mask: torch.Tensor,
