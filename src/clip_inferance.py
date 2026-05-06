@@ -24,7 +24,9 @@ class SimilarityResult(TypedDict):
 class CLIPInference:
     """CLIP-based image dot product similarity computation."""
 
-    def __init__(self, model_name: str = CLIP_MODEL_NAME, device: str | None = None):
+    def __init__(
+        self, model_name: str = CLIP_MODEL_NAME, device: torch.device | None = None
+    ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Loading CLIP from {model_name} on {self.device}...")
 
@@ -55,15 +57,34 @@ class CLIPInference:
         else:
             raise TypeError(f"Unsupported input type: {type(images)}")
 
+    # This assumes tensor is in the format right for CLIP
+    def compute_image_embedding_from_tensor(
+        self, image_tensor: torch.Tensor, normalize: bool = True
+    ) -> torch.Tensor:
+        if image_tensor.ndim == 3:
+            image_tensor = image_tensor.unsqueeze(0)
+
+        image_tensor = image_tensor.to(self.device)
+        return self._compute_image_embeddings_from_preprocessed(
+            {"pixel_values": image_tensor}, norm=normalize
+        )
+
     @torch.no_grad()
     def compute_image_embeddings(
         self,
-        images: Union[str, Image.Image, List[Union[str, Image.Image]]],
+        images: str | Image.Image | List[str | Image.Image],
         normalize: bool = True,
     ) -> torch.Tensor:
         pil_images = self._load_images(images)
         inputs = self.processor(images=pil_images, return_tensors="pt").to(self.device)
+        return self._compute_image_embeddings_from_preprocessed(inputs, norm=normalize)
+
+    def _compute_image_embeddings_from_preprocessed(
+        self, inputs, norm: bool = True
+    ) -> torch.Tensor:
         output = self.model.get_image_features(**inputs)
+        embeddings = None
+
         if isinstance(output, torch.Tensor):
             embeddings = output
         elif hasattr(output, "image_embeds"):
@@ -73,7 +94,7 @@ class CLIPInference:
         else:
             raise TypeError(f"Unsupported CLIP output type: {type(output)}")
 
-        if normalize:
+        if norm:
             embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
         return embeddings
@@ -164,7 +185,7 @@ class CLIPInference:
 
 
 def load_clip(
-    model_name: str = CLIP_MODEL_NAME, device: str | None = None
+    model_name: str = CLIP_MODEL_NAME, device: torch.device | None = None
 ) -> CLIPInference:
     return CLIPInference(model_name=model_name, device=device)
 

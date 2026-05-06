@@ -13,7 +13,8 @@ from torchvision import transforms
 
 from src.constants import BATCH_SIZE, DATASET, IMAGENET_MEAN, IMAGENET_STD
 
-DEFAULT_TRANSFORMS = transforms.Compose(
+# TODO: Czy tu powinno być IMAGENET_MEAN/STD?
+PIL_TO_I2SB = transforms.Compose(
     [
         transforms.Resize((512, 512)),
         transforms.ToTensor(),
@@ -24,9 +25,15 @@ DEFAULT_TRANSFORMS = transforms.Compose(
 inverse_mean = [-m / s for m, s in zip(IMAGENET_MEAN, IMAGENET_STD)]
 inverse_std = [1 / s for s in IMAGENET_STD]
 
-DEFAULT_REVERSE_TRANSFORM = transforms.Compose(
+I2SB_TO_NORMAL = transforms.Compose(
     [
         transforms.Normalize(mean=inverse_mean, std=inverse_std),
+    ]
+)
+
+I2SB_TO_PIL = transforms.Compose(
+    [
+        I2SB_TO_NORMAL,
         transforms.ToPILImage(),
     ]
 )
@@ -263,6 +270,7 @@ def get_feature_loader(
     feature: FeatureType,
     split: str = "train",
     batch_size: int = BATCH_SIZE,
+    transform: transforms.Compose | None = None,
 ) -> DataLoader:
     """Fast loader producer."""
 
@@ -278,7 +286,7 @@ def get_feature_loader(
     dataset = CelebAFeatureDataset(
         dataset=CelebADataset(split=split),
         feature=feature,
-        transform=DEFAULT_TRANSFORMS,
+        transform=transform,
     )
     return DataLoader(
         dataset,

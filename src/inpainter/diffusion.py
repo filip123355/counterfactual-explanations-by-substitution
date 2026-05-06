@@ -5,13 +5,21 @@
 # for I2SB. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
 
-from typing import Callable, Literal
+from typing import Callable, Literal, TypedDict, Unpack
 
 import numpy as np
 import torch
 from tqdm import tqdm
 
+from src.constants import GUIDANCE_SCALE
+from src.inpainter.guidance import GuidanceFn
 from src.utils import unsqueeze_xdim
+
+
+class CondFnParams(TypedDict):
+    x_t: torch.Tensor
+    pred_x0: torch.Tensor
+    t: torch.Tensor | int
 
 
 def compute_gaussian_product_coef(sigma1, sigma2):
@@ -103,10 +111,11 @@ class Diffusion(torch.nn.Module):
         self,
         *,
         steps: list[int],
-        pred_x0_fn: Callable[[torch.Tensor, int], torch.Tensor],
+        pred_x0_fn: Callable[[Unpack[CondFnParams]], torch.Tensor],
         xt: torch.Tensor,
         x1: torch.Tensor,
         mask: torch.Tensor,
+        cond_fn: GuidanceFn | None = None,
         ot_ode=False,
     ) -> torch.Tensor:
         xs = xt.detach()
@@ -119,7 +128,19 @@ class Diffusion(torch.nn.Module):
         for prev_step, step in pair_steps:
             assert prev_step < step, f"{prev_step=}, {step=}"
 
+            if cond_fn is not None:
+                xs = xs.detach().requires_grad_()
+
             pred_x0 = pred_x0_fn(xs, step)
+
+            if cond_fn is not None:
+                cond_grad = cond_fn(xt=xs, t=step, pred_x0=pred_x0)
+                xs = xs + (GUIDANCE_SCALE * cond_grad)
+
+                xs = xs.detach()
+                pred_x0 = pred_x0.detach()
+                del cond_grad
+
             xs = self.p_posterior(prev_step, step, xs, pred_x0, ot_ode=ot_ode)
 
             xt_true = x1.clone()
