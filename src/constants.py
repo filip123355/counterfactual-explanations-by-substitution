@@ -19,7 +19,6 @@ FACE_LANDMARK_MODEL_PATH: str = config("FACE_LANDMARK_MODEL_PATH")
 BATCH_SIZE = 64
 
 # Other
-IMAGE_TRANSFORM_SIZE = 512
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -35,6 +34,8 @@ USE_HQ = "hq" in I2SB_MODEL_PATH
 
 logger.info(f"Using I2SB model from {I2SB_MODEL_PATH}, USE_HQ={USE_HQ}")
 
+I2SB_IMAGE_SIZE = 256
+
 INTERVAL = 1000 if USE_HQ else 500
 T = 1.0
 T0 = 0.0001
@@ -44,7 +45,7 @@ USE_FP16 = True
 EMA_DECAY = 0.99
 CLIP_DENOISE = False
 STEP_SIZE = 0.0
-GUIDANCE_SCALE = 1.0
+GUIDANCE_SCALE = 5.0
 
 MODEL_KWARGS = {
     "attention_resolutions": "32,16,8",
@@ -60,7 +61,7 @@ MODEL_KWARGS = {
     "num_res_blocks": 2,
     "resblock_updown": True,
     "use_checkpoint": False,
-    "use_fp16": False,
+    "use_fp16": USE_FP16,
     "use_new_attention_order": False,
     "use_scale_shift_norm": True,
 }

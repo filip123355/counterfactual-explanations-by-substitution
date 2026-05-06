@@ -1,12 +1,13 @@
 from torchvision import transforms
 
+from src.constants import I2SB_IMAGE_SIZE
+
 I2SB_MEAN = (0.5, 0.5, 0.5)
 I2SB_STD = (0.5, 0.5, 0.5)
 
-# TODO: Czy tu powinno być IMAGENET_MEAN/STD?
 PIL_TO_I2SB = transforms.Compose(
     [
-        transforms.Resize((512, 512)),
+        transforms.Resize((I2SB_IMAGE_SIZE, I2SB_IMAGE_SIZE)),
         transforms.ToTensor(),
         transforms.Normalize(mean=I2SB_MEAN, std=I2SB_STD),
     ]

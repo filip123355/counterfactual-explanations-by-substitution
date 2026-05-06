@@ -82,17 +82,20 @@ class CLIPGuidance(Guidance):
         if self.target_embedding is None:
             raise ValueError("Target embedding not set.")
 
+        pred_x0_in = pred_x0.detach().requires_grad_()
+
         with torch.autocast(
             dtype=torch.float16, enabled=USE_FP16, device_type=xt.device.type
         ):
             pred_emb = self.clip.compute_image_embedding_from_tensor(
-                self.transform_i2sb_to_clip(pred_x0), normalize=True
+                self.transform_i2sb_to_clip(pred_x0_in), normalize=True
             )
+
         pred_emb = pred_emb.float()
 
         target = self.target_embedding.expand(pred_emb.shape[0], -1)
-
         loss = -torch.cosine_similarity(pred_emb, target, dim=-1).mean()
-        grad = torch.autograd.grad(outputs=loss, inputs=xt)[0]
 
-        return -grad
+        grad_x0 = torch.autograd.grad(outputs=loss, inputs=pred_x0_in)[0]
+
+        return -grad_x0

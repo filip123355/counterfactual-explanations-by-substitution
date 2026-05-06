@@ -7,7 +7,7 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import CLIPModel, CLIPProcessor
 
-from src.constants import BATCH_SIZE, CLIP_MODEL_NAME, DATASET
+from src.constants import BATCH_SIZE, CLIP_MODEL_NAME, DATASET, USE_FP16
 from src.data_loading import (
     CelebADataset,
     CelebAFeatureDataset,
@@ -32,6 +32,10 @@ class CLIPInference:
 
         self.processor = CLIPProcessor.from_pretrained(model_name)
         self.model = CLIPModel.from_pretrained(model_name).to(self.device).eval()  # ty: ignore
+
+        if USE_FP16:
+            logger.info("Converting CLIP model to FP16...")
+            self.model = self.model.half()
 
     def _load_images(
         self, images: Union[str, Image.Image, List[Union[str, Image.Image]]]

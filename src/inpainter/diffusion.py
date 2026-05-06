@@ -47,11 +47,11 @@ class Diffusion(torch.nn.Module):
         std_sb = var.sqrt()
 
         self.betas = torch.from_numpy(betas).float()
-        self.register_buffer("std_fwd", std_fwd)
-        self.register_buffer("std_bwd", std_bwd)
-        self.register_buffer("std_sb", std_sb)
-        self.register_buffer("mu_x0", mu_x0)
-        self.register_buffer("mu_x1", mu_x1)
+        self.register_buffer("std_fwd", std_fwd.float())
+        self.register_buffer("std_bwd", std_bwd.float())
+        self.register_buffer("std_sb", std_sb.float())
+        self.register_buffer("mu_x0", mu_x0.float())
+        self.register_buffer("mu_x1", mu_x1.float())
 
     def get_std_fwd(self, step: int | torch.Tensor, xdim=None):
         std_fwd = self.std_fwd[step]
@@ -128,12 +128,13 @@ class Diffusion(torch.nn.Module):
             pred_x0 = pred_x0_fn(xs, step)
 
             if cond_fn is not None:
-                cond_grad = cond_fn(xt=xs, t=step, pred_x0=pred_x0)
-                xs = xs + (GUIDANCE_SCALE * cond_grad)
+                cond_grad_x0 = cond_fn(xt=xs, t=step, pred_x0=pred_x0)
 
+                pred_x0 = pred_x0 + (GUIDANCE_SCALE * cond_grad_x0)
+
+                del cond_grad_x0
                 xs = xs.detach()
                 pred_x0 = pred_x0.detach()
-                del cond_grad
 
             xs = self.p_posterior(prev_step, step, xs, pred_x0, ot_ode=ot_ode)
 

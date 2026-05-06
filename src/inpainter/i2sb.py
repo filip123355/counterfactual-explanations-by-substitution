@@ -9,6 +9,7 @@ from torch_ema import ExponentialMovingAverage
 from torchvision import transforms
 
 import src.utils as util
+from src.clip_inferance import load_clip
 from src.constants import (
     BETA_MAX,
     CLIP_DENOISE,
@@ -24,10 +25,10 @@ from src.constants import (
 )
 from src.data_loading import (
     CelebADataset,
-    Feature,
+    CompositeFeature,
 )
 from src.inpainter.diffusion import Diffusion
-from src.inpainter.guidance import Guidance
+from src.inpainter.guidance import CLIPGuidance, Guidance
 from src.inpainter.network import Image256Net
 from src.inpainter.transforms import I2SB_TO_PIL, PIL_TO_I2SB
 from src.keypoints import MediapipeFaceKeypointDetector
@@ -247,14 +248,14 @@ class I2SB:
 if __name__ == "__main__":
     src_idx = 0
     dest_idx = 13
-    feature = Feature.nose
+    feature = CompositeFeature.eyes
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # guidance = CLIPGuidance(load_clip(device=device))
+    guidance = CLIPGuidance(load_clip(device=device))
 
     inpainter = I2SB(
         device=device,
-        # guidance=guidance,
+        guidance=guidance,
     )
 
     dataset = CelebADataset(split="test")
@@ -267,11 +268,11 @@ if __name__ == "__main__":
     dest_mask = dataset.get(dest_idx, feature=feature, inflate_mask=10)["mask"]
     assert dest_mask is not None
 
-    src_image = dataset.get(src_idx, feature=feature)["full_image"]
-    # guidance.set_target(src_image)
+    dest_image = dataset.get(dest_idx, feature=feature)["full_image"]
+    guidance.set_target(dest_image)
 
     inp_image = inpainter.inpaint(
-        subst_image, dest_mask, tau=1.0, sampler_type=SampleType.DDPM
+        subst_image, dest_mask, tau=0.3, sampler_type=SampleType.DDPM
     )
 
     show_inpanting(
