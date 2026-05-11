@@ -6,7 +6,7 @@ import torch
 from loguru import logger
 from tqdm import tqdm
 
-from src.constants import I2SB_MASK_INFLATION
+from src.constants import I2SB_MASK_INFLATION, I2SB_IMAGE_SIZE
 from src.data_loading import CelebADataset, CompositeFeature, Feature
 from src.inpainter.i2sb import I2SB, SampleType
 from src.keypoints import MediapipeFaceKeypointDetector
@@ -110,7 +110,9 @@ class FIDGenerator:
                     inpainted_image = subst_image
 
                 out_file = self.output_path / f"{generated_count:05d}.png"
-                inpainted_image.save(out_file)
+
+                resized_image = inpainted_image.resize((I2SB_IMAGE_SIZE, I2SB_IMAGE_SIZE))
+                resized_image.save(out_file)
                 # dest_image.save(self.output_path / f"{generated_count:05d}_dest.png")
 
                 generated_count += 1
@@ -136,15 +138,16 @@ if __name__ == "__main__":
     inpainter = I2SB(device=device, guidance=guidance)
 
     guidance_str = guidance.__class__.__name__ if guidance else "no_guidance"
+    inpainter_str = inpainter.__class__.__name__ if inpainter else "no_inpainter"
 
     real_images_path = dataset.img_dir
-    generated_images_path = f"generated/fid_samples_{guidance_str}"
+    generated_images_path = f"generated/fid_samples_{inpainter_str}_{guidance_str}"
 
     generator = FIDGenerator(
         dataset=dataset,
         substitution=substitution,
-        inpainter=inpainter,
+        inpainter=None,
         output_path=generated_images_path,
     )
 
-    generator.generate(n_samples=100, tau=0.3)
+    generator.generate(n_samples=1000, tau=0.3)
