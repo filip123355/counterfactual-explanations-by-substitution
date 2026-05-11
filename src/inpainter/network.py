@@ -78,7 +78,6 @@ def create_model(
 class Image256Net(torch.nn.Module):
     diffusion_model: UNetModel
     noise_levels: torch.Tensor
-    cond: bool
 
     def __init__(self, noise_levels: torch.Tensor, model_kwargs: dict):
         super(Image256Net, self).__init__()
@@ -86,8 +85,6 @@ class Image256Net(torch.nn.Module):
         # NOTE: for now we disable use_fp16
         self.diffusion_model = create_model(**model_kwargs)
         self.diffusion_model.eval()
-
-        self.cond = False
 
         logger.info(
             f"[Net] Initialized network! Size={util.count_parameters(self.diffusion_model)}!"
@@ -100,5 +97,5 @@ class Image256Net(torch.nn.Module):
         t = self.noise_levels[steps].detach()
         assert t.dim() == 1 and t.shape[0] == x.shape[0]
 
-        x = torch.cat([x, cond], dim=1) if self.cond else x  # ty: ignore
+        x = torch.cat([x, cond], dim=1) if cond is not None else x
         return self.diffusion_model(x, t)

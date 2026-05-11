@@ -20,6 +20,7 @@ from src.constants import (
     OT_ODE,
     STEP_SIZE,
     T0,
+    UNET_CONDITIONING,
     USE_FP16,
     T,
 )
@@ -28,7 +29,7 @@ from src.data_loading import (
     CompositeFeature,
 )
 from src.inpainter.diffusion import Diffusion
-from src.inpainter.guidance import CLIPGuidance, Guidance
+from src.inpainter.guidance import ClassifierGuidance, CLIPGuidance, Guidance
 from src.inpainter.network import Image256Net
 from src.inpainter.transforms import I2SB_TO_PIL, PIL_TO_I2SB
 from src.keypoints import MediapipeFaceKeypointDetector
@@ -103,8 +104,8 @@ class I2SB:
 
         torch.cuda.empty_cache()
 
-        # if USE_FP16:
-        #     self.net.diffusion_model.convert_to_fp16()
+        if USE_FP16:
+            self.net.diffusion_model.convert_to_fp16()
 
         self.net.eval()
 
@@ -132,16 +133,16 @@ class I2SB:
         tau: float = 1.0,
         step_size: float = STEP_SIZE,
     ) -> torch.Tensor:
-        nfe = nfe or INTERVAL - 1
+        start_step = int(tau * (INTERVAL - 1))
+        nfe = nfe or start_step - 1
+
         assert 0 < nfe < INTERVAL == len(self.diffusion.betas)
         assert 0.0 < tau <= 1.0
 
         x0 = x0.to(self.device)
         x1 = x1.to(self.device)
 
-        start_step = int(tau * (INTERVAL - 1))
-        all_steps = util.space_indices(INTERVAL, nfe + 1)
-        steps = [s for s in all_steps if s <= start_step]
+        steps = util.space_indices(start_step, nfe + 1)
 
         if steps[-1] != start_step:
             steps.append(start_step)
@@ -158,6 +159,8 @@ class I2SB:
             f"[{sampler_type.value.upper()} Sampling] interval={INTERVAL}, {nfe=}, steps={len(steps) - 1}, {tau=}"
         )
 
+        cond = x1.detach() if UNET_CONDITIONING else None
+
         def pred_x0_fn(xt: torch.Tensor, step: int) -> torch.Tensor:
             step_tensor = torch.full(
                 (xt.shape[0],), step, device=self.device, dtype=torch.long
@@ -167,14 +170,14 @@ class I2SB:
             with torch.autocast(
                 device_type=self.device.type, dtype=torch.float16, enabled=USE_FP16
             ):
-                out = self.net(xt, step_tensor)
+                out = self.net(xt, step_tensor, cond=cond)
 
             out = out.float()
             return self._compute_pred_x0(
                 step_tensor, xt, out, clip_denoise=CLIP_DENOISE
             )
 
-        x1_forw = (1.0 - mask) * x0
+        x1_forw = (1.0 - mask) * x0 + mask
 
         requires_grad = (
             sampler_type in [SampleType.CDDB, SampleType.CDDB_DEEP]
@@ -187,6 +190,9 @@ class I2SB:
                     steps=steps,
                     pred_x0_fn=pred_x0_fn,
                     cond_fn=self.guidance,
+                    guidance_scale=self.guidance.get_guidance_scale()
+                    if self.guidance
+                    else None,
                     xt=xt,
                     x1=x1,
                     mask=mask,
@@ -218,7 +224,7 @@ class I2SB:
                 raise ValueError(f"Unknown sampler type: {sampler_type}")
 
         assert xs.shape == x1.shape
-        return xs
+        return xs.clamp(-1.0, 1.0)
 
     def inpaint(
         self,
@@ -248,14 +254,20 @@ class I2SB:
 if __name__ == "__main__":
     src_idx = 0
     dest_idx = 13
-    feature = CompositeFeature.eyes
+    feature = CompositeFeature.mouth
+    nfe = None
+    tau = 0.3
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    guidance = CLIPGuidance(load_clip(device=device))
+    guidance1 = CLIPGuidance(load_clip(device=device))
+    guidance2 = ClassifierGuidance(
+        nfe=nfe,
+        device=device,
+    )
 
     inpainter = I2SB(
         device=device,
-        guidance=guidance,
+        guidance=guidance1,
     )
 
     dataset = CelebADataset(split="test")
@@ -269,12 +281,24 @@ if __name__ == "__main__":
     assert dest_mask is not None
 
     dest_image = dataset.get(dest_idx, feature=feature)["full_image"]
-    guidance.set_target(dest_image)
+    label_value = dataset.get(dest_idx, feature=feature)["label_value"]
 
-    inp_image = inpainter.inpaint(
-        subst_image, dest_mask, tau=0.3, sampler_type=SampleType.DDPM
+    guidance1.set_target(dest_image)
+    guidance2.set_target(dest_image, label_value)
+
+    inpainter.guidance = None
+    inp_image_no_guid = inpainter.inpaint(
+        subst_image, dest_mask, tau=tau, sampler_type=SampleType.DDPM, nfe=nfe
     )
 
-    show_inpanting(
-        dataset.get(dest_idx, feature=feature)["full_image"], subst_image, inp_image
+    inpainter.guidance = guidance1
+    inp_image_guided = inpainter.inpaint(
+        subst_image, dest_mask, tau=tau, sampler_type=SampleType.DDPM, nfe=nfe
     )
+
+    inpainter.guidance = guidance2
+    inp_image_guided_cls = inpainter.inpaint(
+        subst_image, dest_mask, tau=tau, sampler_type=SampleType.DDPM, nfe=nfe
+    )
+
+    show_inpanting(inp_image_no_guid, inp_image_guided, inp_image_guided_cls)

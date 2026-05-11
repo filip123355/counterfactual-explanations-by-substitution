@@ -11,7 +11,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from src.constants import GUIDANCE_SCALE
 from src.inpainter.guidance import GuidanceFn
 from src.utils import unsqueeze_xdim
 
@@ -109,6 +108,7 @@ class Diffusion(torch.nn.Module):
         xt: torch.Tensor,
         x1: torch.Tensor,
         mask: torch.Tensor,
+        guidance_scale: float | None = None,
         cond_fn: GuidanceFn | None = None,
         ot_ode=False,
     ) -> torch.Tensor:
@@ -128,11 +128,17 @@ class Diffusion(torch.nn.Module):
             pred_x0 = pred_x0_fn(xs, step)
 
             if cond_fn is not None:
-                cond_grad_x0 = cond_fn(xt=xs, t=step, pred_x0=pred_x0)
+                assert guidance_scale is not None, (
+                    "guidance_scale must be provided if cond_fn is provided"
+                )
 
-                pred_x0 = pred_x0 + (GUIDANCE_SCALE * cond_grad_x0)
+                guidance_res = cond_fn(xt=xs, t=step, pred_x0=pred_x0)
 
-                del cond_grad_x0
+                if guidance_res.grad_pred_x0 is not None:
+                    pred_x0 = pred_x0 + (guidance_scale * guidance_res.grad_pred_x0)
+                if guidance_res.grad_xt is not None:
+                    xs = xs + (guidance_scale * guidance_res.grad_xt)
+
                 xs = xs.detach()
                 pred_x0 = pred_x0.detach()
 
@@ -148,7 +154,7 @@ class Diffusion(torch.nn.Module):
 
         return xs
 
-    def _guided_sampling_core(
+    def _sampling_core(
         self,
         mode: Literal["shallow", "deep"],
         steps: list[int],
@@ -173,7 +179,7 @@ class Diffusion(torch.nn.Module):
             xs = xs.detach().requires_grad_()
             pred_x0 = pred_x0_fn(xs, step)
 
-            corrupt_x0_forw = (1.0 - mask) * pred_x0
+            corrupt_x0_forw = (1.0 - mask) * pred_x0 + mask
 
             residual = corrupt_x0_forw - x1_forw
             residual_norm = torch.linalg.norm(residual) ** 2
@@ -223,7 +229,7 @@ class Diffusion(torch.nn.Module):
         step_size: float = 1.0,
         ot_ode=False,
     ) -> torch.Tensor:
-        return self._guided_sampling_core(
+        return self._sampling_core(
             mode="shallow",
             steps=steps,
             pred_x0_fn=pred_x0_fn,
@@ -248,7 +254,7 @@ class Diffusion(torch.nn.Module):
         step_size: float = 1.0,
         ot_ode=False,
     ) -> torch.Tensor:
-        return self._guided_sampling_core(
+        return self._sampling_core(
             mode="deep",
             steps=steps,
             pred_x0_fn=pred_x0_fn,
@@ -258,5 +264,5 @@ class Diffusion(torch.nn.Module):
             mask=mask,
             step_size=step_size,
             ot_ode=ot_ode,
-            desc="CDDB-Deep (DPS) sampling",
+            desc="CDDB (Deep) sampling",
         )
