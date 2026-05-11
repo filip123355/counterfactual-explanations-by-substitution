@@ -264,6 +264,7 @@ if __name__ == "__main__":
     guidance2 = ClassifierGuidance(
         nfe=nfe,
         device=device,
+        tau=tau,
     )
 
     inpainter = I2SB(

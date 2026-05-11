@@ -136,7 +136,8 @@ class ClassifierGuidance(Guidance):
         *,
         clf_scale: float = CLASSIFIER_SCALE,
         device: torch.device,
-        nfe=INTERVAL,
+        nfe: int | None = None,
+        tau: float | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -149,8 +150,13 @@ class ClassifierGuidance(Guidance):
             f"Loaded classifier model with {sum(p.numel() for p in self.clf.parameters()):,} parameters."
         )
 
+        if nfe is None:
+            assert tau is not None, "Either nfe or tau must be provided."
+            start_step = int(tau * (INTERVAL - 1))
+            nfe = start_step - 1
+
         self.stabilization = ADAMGradientStabilization(
-            beta_1=0.9, beta_2=0.999, eps=1e-8, reset_step=(nfe or INTERVAL - 1)
+            beta_1=0.9, beta_2=0.999, eps=1e-8, reset_step=nfe
         )
 
         self.adaptive_normalizer = AdaptiveNormalizer(target_scale=1.0)

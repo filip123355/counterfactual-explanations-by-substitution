@@ -6,8 +6,9 @@ import torch
 from loguru import logger
 from tqdm import tqdm
 
-from src.constants import I2SB_MASK_INFLATION, I2SB_IMAGE_SIZE
+from src.constants import I2SB_IMAGE_SIZE, I2SB_MASK_INFLATION
 from src.data_loading import CelebADataset, CompositeFeature, Feature
+from src.inpainter.guidance import ClassifierGuidance
 from src.inpainter.i2sb import I2SB, SampleType
 from src.keypoints import MediapipeFaceKeypointDetector
 from src.substitution import Substitution
@@ -111,7 +112,9 @@ class FIDGenerator:
 
                 out_file = self.output_path / f"{generated_count:05d}.png"
 
-                resized_image = inpainted_image.resize((I2SB_IMAGE_SIZE, I2SB_IMAGE_SIZE))
+                resized_image = inpainted_image.resize(
+                    (I2SB_IMAGE_SIZE, I2SB_IMAGE_SIZE)
+                )
                 resized_image.save(out_file)
                 # dest_image.save(self.output_path / f"{generated_count:05d}_dest.png")
 
@@ -129,12 +132,13 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     random.seed(42)
+    tau = 0.3
 
     dataset = CelebADataset(split="test")
     face_keypoint_detector = MediapipeFaceKeypointDetector()
     substitution = Substitution(dataset, face_keypoint_detector)
 
-    guidance = None
+    guidance = ClassifierGuidance(device=device, tau=tau)
     inpainter = I2SB(device=device, guidance=guidance)
 
     guidance_str = guidance.__class__.__name__ if guidance else "no_guidance"
@@ -146,8 +150,8 @@ if __name__ == "__main__":
     generator = FIDGenerator(
         dataset=dataset,
         substitution=substitution,
-        inpainter=None,
+        inpainter=inpainter,
         output_path=generated_images_path,
     )
 
-    generator.generate(n_samples=1000, tau=0.3)
+    generator.generate(n_samples=1000, tau=tau)
