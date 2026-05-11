@@ -16,14 +16,14 @@ from src.substitution import Substitution
 class FIDGenerator:
     dataset: CelebADataset
     substitution: Substitution
-    inpainter: I2SB
+    inpainter: I2SB | None
     output_path: Path
 
     def __init__(
         self,
         dataset: CelebADataset,
         substitution: Substitution,
-        inpainter: I2SB,
+        inpainter: I2SB | None,
         output_path: str | Path,
     ):
         self.dataset = dataset
@@ -91,20 +91,23 @@ class FIDGenerator:
                     and dest_image is not None
                 )
 
-                if self.inpainter.guidance is not None:
-                    assert label_value is not None
-                    self.inpainter.guidance.set_target(
-                        target_img=dest_image,
-                        label_value=label_value,
-                    )
+                if self.inpainter is not None:
+                    if self.inpainter.guidance is not None:
+                        assert label_value is not None
+                        self.inpainter.guidance.set_target(
+                            target_img=dest_image,
+                            label_value=label_value,
+                        )
 
-                inpainted_image = self.inpainter.inpaint(
-                    image=subst_image,
-                    mask=combined_mask,
-                    tau=tau,
-                    nfe=nfe,
-                    sampler_type=SampleType.DDPM,
-                )
+                    inpainted_image = self.inpainter.inpaint(
+                        image=subst_image,
+                        mask=combined_mask,
+                        tau=tau,
+                        nfe=nfe,
+                        sampler_type=SampleType.DDPM,
+                    )
+                else:
+                    inpainted_image = subst_image
 
                 out_file = self.output_path / f"{generated_count:05d}.png"
                 inpainted_image.save(out_file)
@@ -122,6 +125,8 @@ class FIDGenerator:
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    random.seed(42)
 
     dataset = CelebADataset(split="test")
     face_keypoint_detector = MediapipeFaceKeypointDetector()
