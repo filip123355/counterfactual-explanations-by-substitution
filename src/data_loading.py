@@ -11,7 +11,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-from src.constants import BATCH_SIZE, DATASET
+from src.constants import BATCH_SIZE, CLASSIFIER_LABEL, DATASET
 
 CELEB_HQ_SIZE = (1024, 1024)
 
@@ -22,6 +22,7 @@ class CelebAItem(TypedDict):
     cropped_image: Image.Image | torch.Tensor | None
     bbox: tuple[int, int, int, int] | None
     mask: np.ndarray | None
+    label_value: int
 
 
 class Feature(StrEnum):
@@ -89,6 +90,7 @@ class CelebADataset:
         root_dir=DATASET,
         partition_file=os.path.join(DATASET, "list_eval_partition.txt"),
         mapping_file=os.path.join(DATASET, "CelebA-HQ-to-CelebA-mapping.txt"),
+        attr_file=os.path.join(DATASET, "CelebAMask-HQ-attribute-anno.txt"),
         split: str = "train",
     ):
 
@@ -101,6 +103,17 @@ class CelebADataset:
             partition_file, sep="\\s+", header=None, names=["orig_file", "split"]
         )
         merged = pd.merge(mapping_df, partition_df, on="orig_file")
+
+        attr_df = pd.read_csv(attr_file, sep="\\s+", skiprows=1)
+
+        attr_df["idx"] = attr_df.index.str.replace(".jpg", "", regex=False).astype(int)
+        attr_df[CLASSIFIER_LABEL.capitalize()] = (
+            attr_df[CLASSIFIER_LABEL.capitalize()] == 1
+        ).astype(int)
+
+        merged = pd.merge(
+            merged, attr_df[["idx", CLASSIFIER_LABEL.capitalize()]], on="idx"
+        )
 
         split_map = {"train": 0, "val": 1, "test": 2}
         self.data = merged[merged["split"] == split_map[split]].copy()
@@ -190,6 +203,7 @@ class CelebADataset:
             "cropped_image": cropped_image,
             "bbox": bbox,
             "mask": mask,
+            "label_value": self.data.iloc[index][CLASSIFIER_LABEL.capitalize()],
         }
 
     def _inflate_mask(self, mask: np.ndarray, inflation_pixels: int) -> np.ndarray:
@@ -256,6 +270,7 @@ def get_feature_loader(
             "cropped_image": np.array([item["cropped_image"] for item in batch]),
             "bbox": np.array([item["bbox"] for item in batch]),
             "mask": np.array([item["mask"] for item in batch]),
+            "label_value": np.array([item["label_value"] for item in batch]),
         }
 
     dataset = CelebAFeatureDataset(
@@ -281,3 +296,4 @@ if __name__ == "__main__":
     logger.info(f"Cropped images shape: {batch['cropped_image'].shape}")
     logger.info(f"BBoxes shape: {batch['bbox'].shape}")
     logger.info(f"Masks shape: {batch['mask'].shape}")
+    logger.info(f"Label values shape: {batch['label_value'].shape}")
