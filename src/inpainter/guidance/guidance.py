@@ -48,6 +48,12 @@ class Guidance:
         raise NotImplementedError("Guidance is not implemented yet.")
 
     @abstractmethod
+    def set_target(
+        self, *, target_img: Image.Image, label_value: int | None = None
+    ) -> None:
+        pass
+
+    @abstractmethod
     def get_guidance_scale(self) -> float:
         pass
 
@@ -87,8 +93,10 @@ class CLIPGuidance(Guidance):
             ]
         )
 
-    def set_target(self, target: Image.Image | str) -> None:
-        target_emb = self.clip.compute_image_embeddings(target, normalize=True)
+    def set_target(
+        self, *, target_img: Image.Image, label_value: int | None = None
+    ) -> None:
+        target_emb = self.clip.compute_image_embeddings(target_img, normalize=True)
         self.target_embedding = target_emb.detach().requires_grad_(False)
 
     def get_guidance_scale(self) -> float:
@@ -128,7 +136,8 @@ class ClassifierGuidance(Guidance):
         *,
         clf_scale: float = CLASSIFIER_SCALE,
         device: torch.device,
-        nfe=INTERVAL,
+        nfe: int | None = None,
+        tau: float | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -141,8 +150,13 @@ class ClassifierGuidance(Guidance):
             f"Loaded classifier model with {sum(p.numel() for p in self.clf.parameters()):,} parameters."
         )
 
+        if nfe is None:
+            assert tau is not None, "Either nfe or tau must be provided."
+            start_step = int(tau * (INTERVAL - 1))
+            nfe = start_step - 1
+
         self.stabilization = ADAMGradientStabilization(
-            beta_1=0.9, beta_2=0.999, eps=1e-8, reset_step=(nfe or INTERVAL - 1)
+            beta_1=0.9, beta_2=0.999, eps=1e-8, reset_step=nfe
         )
 
         self.adaptive_normalizer = AdaptiveNormalizer(target_scale=1.0)
@@ -151,15 +165,19 @@ class ClassifierGuidance(Guidance):
         self.target_label = None
 
     def set_target(
-        self, target_img: Image.Image | torch.Tensor, target_label: int
+        self, *, target_img: Image.Image, label_value: int | None = None
     ) -> None:
+        assert label_value is not None, (
+            "Label value must be provided for ClassifierGuidance."
+        )
+
         if isinstance(target_img, Image.Image):
             target_tensor = self.pil_to_i2sb(target_img).unsqueeze(0)
         else:
             target_tensor = target_img
 
         self.target_image = target_tensor.to(torch.float32).detach()
-        self.target_label = torch.tensor([target_label], dtype=torch.long)
+        self.target_label = torch.tensor([label_value], dtype=torch.long)
 
     def get_guidance_scale(self) -> float:
         return 0.02

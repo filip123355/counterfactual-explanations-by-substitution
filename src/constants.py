@@ -48,6 +48,7 @@ logger.info(
 )
 
 I2SB_IMAGE_SIZE = 128
+I2SB_MASK_INFLATION = 10
 
 INTERVAL = 1000 if USE_HQ else 500
 T = 1.0
