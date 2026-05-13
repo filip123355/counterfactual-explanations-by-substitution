@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from PIL import Image
+from collections.abc import Mapping
 
 from src.data_loading import (
     CelebADataset,
@@ -93,6 +94,31 @@ def show_top_k_similar(
         axes[i + 1].set_title(f"Top-{i + 1} Similar")
     plt.tight_layout()
     plt.show()
+
+
+def show_shapley_values(
+    shapley_values: Mapping[object, float],
+    save_path: str | None = None,
+    title: str = "Shapley Values",
+):
+    items = sorted(shapley_values.items(), key=lambda item: item[1], reverse=True)
+    labels = [str(key.value if hasattr(key, "value") else key) for key, _ in items]
+    values = [value for _, value in items]
+
+    fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(items)), 5))
+    colors = ["#2E86DE" if value >= 0 else "#D63625" for value in values]
+    ax.bar(labels, values, color=colors)
+    ax.axhline(0.0, color="black", linewidth=1)
+    ax.set_title(title)
+    ax.set_ylabel("Contribution")
+    ax.set_xlabel("Feature")
+    ax.tick_params(axis="x", rotation=30)
+    plt.tight_layout()
+
+    if save_path is None:
+        plt.show()
+    else:
+        plt.savefig(save_path, bbox_inches="tight")
 
 
 if __name__ == "__main__":

@@ -27,9 +27,10 @@ CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
 # Model name and configuration
 MODEL_NAME = "google/vit-base-patch16-224"
+MODEL_PATH = "models/vit-base-patch16-224"
 
 # I2SB
-USE_HQ = False
+USE_HQ = True
 
 I2SB_CELEB_MODEL_PATH = config("I2SB_CELEB_MODEL_PATH")
 I2SB_CELEBHQ_MODEL_PATH = config("I2SB_CELEBHQ_MODEL_PATH")
