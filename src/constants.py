@@ -48,7 +48,8 @@ logger.info(
     f"Using I2SB model from {I2SB_MODEL_PATH}, classifier model from {CLASSIFIER_MODEL_PATH}."
 )
 
-I2SB_IMAGE_SIZE = 256
+I2SB_IMAGE_SIZE = 128
+I2SB_MASK_INFLATION = 10
 
 INTERVAL = 1000 if USE_HQ else 500
 T = 1.0

@@ -14,6 +14,7 @@ from src.constants import (
     BETA_MAX,
     CLIP_DENOISE,
     EMA_DECAY,
+    I2SB_MASK_INFLATION,
     I2SB_MODEL_PATH,
     INTERVAL,
     MODEL_KWARGS,
@@ -263,6 +264,7 @@ if __name__ == "__main__":
     guidance2 = ClassifierGuidance(
         nfe=nfe,
         device=device,
+        tau=tau,
     )
 
     inpainter = I2SB(
@@ -277,14 +279,16 @@ if __name__ == "__main__":
 
     subst_image = substitution.substitute(src_idx, dest_idx, feature)
 
-    dest_mask = dataset.get(dest_idx, feature=feature, inflate_mask=10)["mask"]
+    dest_mask = dataset.get(
+        dest_idx, feature=feature, inflate_mask=I2SB_MASK_INFLATION
+    )["mask"]
     assert dest_mask is not None
 
     dest_image = dataset.get(dest_idx, feature=feature)["full_image"]
     label_value = dataset.get(dest_idx, feature=feature)["label_value"]
 
-    guidance1.set_target(dest_image)
-    guidance2.set_target(dest_image, label_value)
+    guidance1.set_target(target_img=dest_image, label_value=label_value)
+    guidance2.set_target(target_img=dest_image, label_value=label_value)
 
     inpainter.guidance = None
     inp_image_no_guid = inpainter.inpaint(

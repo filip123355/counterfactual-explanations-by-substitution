@@ -29,6 +29,8 @@ dependencies = [
     "opencv-contrib-python>=4.13.0.92",
     "mediapipe>=0.10.35",
     "torch-ema>=0.3",
+    "clean-fid>=0.1.35",
+    "clip",
 ]
 
 [dependency-groups]
@@ -36,3 +38,6 @@ dev = [
     "ruff>=0.15.12",
     "ty>=0.0.34",
 ]
+
+[tool.uv.sources]
+clip = { git = "https://github.com/openai/CLIP.git" }
