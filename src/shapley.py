@@ -12,11 +12,11 @@ from PIL import Image
 
 from src.data_loading import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.i2sb import I2SB, SampleType
-from src.model_inference import ViTClassifier
+from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
 from src.substitution import Substitution
 from src.keypoints import MediapipeFaceKeypointDetector
-from src.inpainter.guidance import CLIPGuidance, ClassifierGuidance, Guidance
-from src.clip_inferance import CLIPInference, load_clip
+from src.inpainter.guidance import CLIPGuidance
+from src.clip_inferance import load_clip
 from src.visualize import show_shapley_values
 from src.constants import PROJECT_ROOT
 
@@ -91,8 +91,9 @@ class ShapleyValueCalculator:
                     inpainted_img = self.inpainter.inpaint(
                         image=current_img,
                         mask=combined_mask,
-                        tau=1.0,
-                        sampler_type=SampleType.DDPM # TODO: maybe experiment with differnt samplers?
+                        tau=0.5,
+                        sampler_type=SampleType.DDPM,
+                        nfe=100,
                     )
                     inpainted_for_S.append(inpainted_img)
                 else:
@@ -101,13 +102,17 @@ class ShapleyValueCalculator:
             coalition_images[tuple(sorted(S))] = inpainted_for_S
             
         return coalition_images
+    
+    def prepare_image(self, image: Image.Image) -> torch.Tensor:
+        tensor = torch.from_numpy(np.array(image)) / 255.0
+        return tensor.permute(2, 0, 1).float() 
 
     def compute_shapley_values(
         self,
-        model: ViTClassifier,
+        model: DenseNetClassifier,
         coalition_images: dict,
         features: List[FeatureType],
-        target_class_idx: int
+        device: torch.device,
     ) -> dict:
         
         N = sorted(features)
@@ -115,8 +120,9 @@ class ShapleyValueCalculator:
         
         v = {}
         for S, images_list in coalition_images.items():
-            probs = model.predict_batch(images_list, return_probs=True) 
-            mean_prob = probs[:, target_class_idx].mean().item()
+            images = torch.stack([self.prepare_image(img) for img in images_list], dim=0).to(device)
+            probs = model.pred_prob(images)
+            mean_prob = probs[:, 0].mean().item()
             v[S] = mean_prob
 
         shapley_values = {feat: 0.0 for feat in N}
@@ -151,7 +157,7 @@ if __name__ == "__main__":
 
         target_hq_idx = dataset.data.iloc[TARGET_INDEX]["idx"]
         target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
-        guidance.set_target(Image.open(target_image_path).convert("RGB"))
+        guidance.set_target(target_img=Image.open(target_image_path).convert("RGB"))
 
         inpainter = I2SB(device=device, guidance=guidance)
         shap_calculator = ShapleyValueCalculator(
@@ -163,17 +169,17 @@ if __name__ == "__main__":
 
         coalition_images = shap_calculator.prepare_coalitions_inpainting(
             target_idx=TARGET_INDEX,
-            ref_indices=[0, 1, 2],
+            ref_indices=[0, 1, 2, 3, 4],
             features=[CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
         )
 
-        model = ViTClassifier()
+        model = get_classifier().to(device)
 
         shapely_values = shap_calculator.compute_shapley_values(
             model=model,
             coalition_images=coalition_images,
             features=[CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth],
-            target_class_idx=21, # Male label
+            device=device,
         )
         print("Shapley Values:", shapely_values)
 

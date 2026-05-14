@@ -27,10 +27,9 @@ CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
 # Model name and configuration
 MODEL_NAME = "google/vit-base-patch16-224"
-MODEL_PATH = "models/vit-base-patch16-224"
 
 # I2SB
-USE_HQ = True
+USE_HQ = False
 
 I2SB_CELEB_MODEL_PATH = config("I2SB_CELEB_MODEL_PATH")
 I2SB_CELEBHQ_MODEL_PATH = config("I2SB_CELEBHQ_MODEL_PATH")
@@ -56,7 +55,7 @@ T = 1.0
 T0 = 0.0001
 OT_ODE = True
 BETA_MAX = 1.0
-USE_FP16 = False
+USE_FP16 = True
 EMA_DECAY = 0.99
 CLIP_DENOISE = False
 STEP_SIZE = 0.0
