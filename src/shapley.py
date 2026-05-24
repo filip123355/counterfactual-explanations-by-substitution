@@ -115,6 +115,7 @@ class NShapleyValueCalculator:
         coalition_images: dict,
         device: torch.device,
         pred_prob: bool = False,
+        target_class_idx: int = 0,
     ) -> dict[tuple[FeatureType, ...], float]:
         values = {}
         for coalition, images_list in coalition_images.items():
@@ -126,7 +127,7 @@ class NShapleyValueCalculator:
                 out = model.pred_prob(images)
             else:
                 out = model(images)
-            values[coalition] = out[:, 0].mean().item()
+            values[coalition] = out[:, target_class_idx].mean().item()
         return values
 
     @staticmethod
@@ -153,6 +154,7 @@ class NShapleyValueCalculator:
         features: List[FeatureType],
         device: torch.device,
         pred_prob: bool = False,
+        target_class_idx: int = 0,
     ) -> dict:
         
         N = sorted(features)
@@ -163,6 +165,7 @@ class NShapleyValueCalculator:
             coalition_images=coalition_images,
             device=device,
             pred_prob=pred_prob,
+            target_class_idx=target_class_idx,
         )
 
         interaction_values = {}
@@ -220,13 +223,16 @@ if __name__ == "__main__":
         )
 
         model = get_classifier().to(device)
-        n = 2
+        n = 1
+        target_class_idx = 20
         shapely_values = shap_calculator.compute_n_shapley_values(
             n=n,
             model=model,
             coalition_images=coalition_images,
             features=[CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth],
             device=device,
+            pred_prob=True,
+            target_class_idx=target_class_idx,
         )
         print(f"{n}-Shapley interaction values:", shapely_values)
 
