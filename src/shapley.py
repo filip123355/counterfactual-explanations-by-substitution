@@ -194,7 +194,7 @@ class NShapleyValueCalculator:
 if __name__ == "__main__":
     face_keypoint_detector = None
     TARGET_INDEX = 9
-    n = 2
+    n = 1
     try:
         dataset = CelebADataset(split="test")
         face_keypoint_detector = MediapipeFaceKeypointDetector()
