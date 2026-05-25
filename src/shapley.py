@@ -2,6 +2,7 @@ import itertools
 import math
 import json
 import os
+from enum import StrEnum
 from typing import List
 
 import numpy as np
@@ -17,7 +18,11 @@ from src.keypoints import MediapipeFaceKeypointDetector
 from src.inpainter.guidance import CLIPGuidance
 from src.clip_inferance import load_clip
 from src.visualize import show_shapley_values
-from src.constants import PROJECT_ROOT
+from src.constants import PROJECT_ROOT, CLASSIFIER_LABEL
+
+
+class AuxiliaryFeature(StrEnum):
+    background = "background"
 
 
 def _shapley_key_to_str(key: object) -> str:
@@ -47,6 +52,64 @@ class NShapleyValueCalculator:
         for m in mask_list[1:]:
             combined = np.logical_or(combined, m).astype(np.uint8) * 255
         return combined
+
+    def _get_feature_universe(self, features: List[FeatureType]) -> list[FeatureType | AuxiliaryFeature]:
+        universe = list(features)
+        if self.background_as_feature and AuxiliaryFeature.background not in universe:
+            universe.append(AuxiliaryFeature.background)
+        return universe
+
+    def _load_full_image(self, index: int) -> Image.Image:
+        hq_idx = self.dataset.data.iloc[index]["idx"]
+        image_path = os.path.join(self.dataset.img_dir, f"{hq_idx}.jpg")
+        return Image.open(image_path).convert("RGB")
+
+    def _get_background_mask(
+        self,
+        index: int,
+        features: List[FeatureType],
+        *,
+        inflate_mask: int = 0,
+        image_size: tuple[int, int] | None = None,
+    ) -> np.ndarray:
+        if image_size is None:
+            image_size = self._load_full_image(index).size
+
+        feature_masks = []
+        for feature in features:
+            item = self.dataset.get(index, feature=feature, inflate_mask=inflate_mask)
+            mask = item.get("mask")
+            if mask is not None:
+                feature_masks.append(mask)
+
+        if not feature_masks:
+            width, height = image_size
+            return np.full((height, width), 255, dtype=np.uint8)
+
+        foreground_mask = self._combine_masks(feature_masks)
+        if foreground_mask is None:
+            width, height = image_size
+            return np.full((height, width), 255, dtype=np.uint8)
+
+        return np.where(foreground_mask > 0, 0, 255).astype(np.uint8)
+
+    def _substitute_background(
+        self,
+        src_idx: int,
+        dest_idx: int,
+        image: Image.Image,
+        features: List[FeatureType],
+    ) -> Image.Image:
+        src_image = np.array(self._load_full_image(src_idx))
+        dest_image = np.array(image)
+        background_mask = self._get_background_mask(
+            dest_idx,
+            features,
+            image_size=image.size,
+        )
+        alpha = (background_mask.astype(np.float32) / 255.0)[..., None]
+        blended = (src_image * alpha) + (dest_image * (1.0 - alpha))
+        return Image.fromarray(np.clip(blended, 0, 255).astype(np.uint8))
         
     def prepare_coalitions_inpainting(
         self,
@@ -54,12 +117,11 @@ class NShapleyValueCalculator:
         ref_indices: List[int],
         features: List[FeatureType],
     ) -> dict:
-        N = set(features)
+        feature_universe = self._get_feature_universe(features)
+        N = set(feature_universe)
         coalition_images = {}
 
-        target_hq_idx = self.dataset.data.iloc[target_idx]["idx"]
-        target_image_path = os.path.join(self.dataset.img_dir, f"{target_hq_idx}.jpg")
-        target_item = Image.open(target_image_path).convert("RGB")
+        target_item = self._load_full_image(target_idx)
         
         all_subsets = []
         for r in range(len(N) + 1):
@@ -76,16 +138,32 @@ class NShapleyValueCalculator:
                 mask_list = []
 
                 for feat in not_in_S:
-                    current_img = self.substitution.substitute(
-                        src_idx=ref_idx, 
-                        dest_idx=target_idx, 
-                        feature=feat, 
-                        image=current_img
-                    )
-                    
-                    mask_dict = self.dataset.get(target_idx, feature=feat, inflate_mask=10)
-                    if mask_dict and mask_dict.get("mask") is not None:
-                        mask_list.append(mask_dict["mask"])
+                    if feat == AuxiliaryFeature.background:
+                        current_img = self._substitute_background(
+                            src_idx=ref_idx,
+                            dest_idx=target_idx,
+                            image=current_img,
+                            features=features,
+                        )
+                        mask_list.append(
+                            self._get_background_mask(
+                                target_idx,
+                                features,
+                                inflate_mask=10,
+                                image_size=current_img.size,
+                            )
+                        )
+                    else:
+                        current_img = self.substitution.substitute(
+                            src_idx=ref_idx, 
+                            dest_idx=target_idx, 
+                            feature=feat, 
+                            image=current_img
+                        )
+                        
+                        mask_dict = self.dataset.get(target_idx, feature=feat, inflate_mask=10)
+                        if mask_dict and mask_dict.get("mask") is not None:
+                            mask_list.append(mask_dict["mask"])
                 
                 if mask_list:
                     combined_mask = self._combine_masks(mask_list)
@@ -115,8 +193,7 @@ class NShapleyValueCalculator:
         coalition_images: dict,
         device: torch.device,
         pred_prob: bool = False,
-        target_class_idx: int = 0,
-    ) -> dict[tuple[FeatureType, ...], float]:
+    ) -> dict[tuple[FeatureType | AuxiliaryFeature, ...], float]:
         values = {}
         for coalition, images_list in coalition_images.items():
             images = torch.stack(
@@ -127,14 +204,14 @@ class NShapleyValueCalculator:
                 out = model.pred_prob(images)
             else:
                 out = model(images)
-            values[coalition] = out[:, target_class_idx].mean().item()
+            values[coalition] = out[:, 0].mean().item()
         return values
 
     @staticmethod
     def _discrete_derivative(
-        values: dict[tuple[FeatureType, ...], float],
-        context: tuple[FeatureType, ...],
-        interaction: tuple[FeatureType, ...],
+        values: dict[tuple[FeatureType | AuxiliaryFeature, ...], float],
+        context: tuple[FeatureType | AuxiliaryFeature, ...],
+        interaction: tuple[FeatureType | AuxiliaryFeature, ...],
     ) -> float:
         derivative = 0.0
 
@@ -154,10 +231,8 @@ class NShapleyValueCalculator:
         features: List[FeatureType],
         device: torch.device,
         pred_prob: bool = False,
-        target_class_idx: int = 0,
     ) -> dict:
-        
-        N = sorted(features)
+        N = sorted(self._get_feature_universe(features))
         num_features = len(N)
     
         v = self._compute_subset_values(
@@ -165,7 +240,6 @@ class NShapleyValueCalculator:
             coalition_images=coalition_images,
             device=device,
             pred_prob=pred_prob,
-            target_class_idx=target_class_idx,
         )
 
         interaction_values = {}
@@ -215,31 +289,32 @@ if __name__ == "__main__":
             inpainter=inpainter,
             background_as_feature=False,
         )
-
+        features = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
         coalition_images = shap_calculator.prepare_coalitions_inpainting(
             target_idx=TARGET_INDEX,
             ref_indices=[0, 1, 2, 3, 4],
-            features=[CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
+            features=features,
         )
 
         model = get_classifier().to(device)
         n = 1
-        target_class_idx = 20
         shapely_values = shap_calculator.compute_n_shapley_values(
             n=n,
             model=model,
             coalition_images=coalition_images,
-            features=[CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth],
+            features=features,
             device=device,
             pred_prob=True,
-            target_class_idx=target_class_idx,
         )
         print(f"{n}-Shapley interaction values:", shapely_values)
 
-        values_dir = os.path.join(PROJECT_ROOT, "results", "shapley_values")
-        plots_dir = os.path.join(PROJECT_ROOT, "results", "shapley_plots")
+        values_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_values")
+        plots_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_plots")
+        features_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_features")
+
         os.makedirs(values_dir, exist_ok=True)
         os.makedirs(plots_dir, exist_ok=True)
+        os.makedirs(features_dir, exist_ok=True)
 
         value_file = os.path.join(
             values_dir,
@@ -249,10 +324,22 @@ if __name__ == "__main__":
             plots_dir,
             f"target_{TARGET_INDEX}_{n}_shapley_values.png",
         )
+        features_file = os.path.join(
+            features_dir,
+            f"target_{TARGET_INDEX}_{n}_shapley_features.json",
+        )
 
         with open(value_file, "w", encoding="utf-8") as handle:
             json.dump(
                 {_shapley_key_to_str(key): value for key, value in shapely_values.items()},
+                handle,
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        with open(features_file, "w", encoding="utf-8") as handle:
+            json.dump(
+                {_shapley_key_to_str(key): _shapley_key_to_str(key) for key in shapely_values.keys()},
                 handle,
                 indent=2,
                 ensure_ascii=False,
