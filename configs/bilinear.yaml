@@ -1,0 +1,12 @@
+TARGET_INDEX: 9
+REF_INDICES_RANGE: [1, 4]
+N: 1
+CLASSIFIER_LABEL: "male"
+DATASET_SPLIT: "test"
+FEATURES:
+  - eyes
+  - nose
+  - mouth
+PRED_PROB: false
+MLFLOW_EXPERIMENT_NAME: "bilinear"
+MLFLOW_RUN_NAME: "target_9_male"

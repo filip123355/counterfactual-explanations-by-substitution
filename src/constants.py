@@ -82,3 +82,6 @@ MODEL_KWARGS = {
     "use_new_attention_order": False,
     "use_scale_shift_norm": True,
 }
+
+# MLflow
+TRACKING_URI = config("TRACKING_URI", default="sqlite:///mlflow.db")

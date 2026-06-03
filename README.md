@@ -38,3 +38,20 @@ Set it to densenet classifier model files from the RCSB repo:
 CLASSIFIER_CELEB_MODEL_PATH -> data/weights/classifiers/celeba/densenet/ckpt.pt
 CLASSIFIER_CELEBHQ_MODEL_PATH -> data/weights/classifiers/celebahq/densenet/ckpt.tar
 ```
+
+## Running scripts
+
+To compute Shapley values for a specific config, run:
+
+```bash
+python scripts/run_shapley.py --config_path path/to/config.yaml
+```
+
+after adjusting the an appropriate config file in `configs` directory.
+
+To build an aproximate bilinear model form 1 and 2-Shapley values and compute $R^2$ determinant, run:
+
+```bash
+python scripts/bilinear.py --config_path path/to/config.yaml
+```
+
