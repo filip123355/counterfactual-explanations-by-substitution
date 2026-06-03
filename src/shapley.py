@@ -194,6 +194,7 @@ class NShapleyValueCalculator:
 if __name__ == "__main__":
     face_keypoint_detector = None
     TARGET_INDEX = 9
+    REF_INDICES = list(range(10, 50))
     n = 1
     try:
         dataset = CelebADataset(split="test")
@@ -214,7 +215,7 @@ if __name__ == "__main__":
         features = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
         coalition_images = shap_calculator.prepare_coalitions_inpainting(
             target_idx=TARGET_INDEX,
-            ref_indices=[0, 1, 2, 3, 4],
+            ref_indices=REF_INDICES,
             features=features,
         )
 
