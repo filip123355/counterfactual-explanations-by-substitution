@@ -1,5 +1,6 @@
 import torch
 import mlflow
+from loguru import logger
 
 from src.bilinear_model import BilinearModel
 from src.data_loading import CelebADataset, CompositeFeature, Feature
@@ -13,6 +14,7 @@ FEATURE_MAP = {
     "eyes": CompositeFeature.eyes,
     "nose": Feature.nose,
     "mouth": CompositeFeature.mouth,
+    "hair": Feature.hair,
 }
 
 
@@ -54,7 +56,7 @@ def main():
 
         mlflow.log_metric("r_squared", r_squared)
         
-        print(f"R-squared: {r_squared:.4f}")
+        logger.info(f"Logged R-squared: {r_squared}")
 
 
 if __name__ == "__main__":

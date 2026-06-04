@@ -3,6 +3,7 @@ import json
 import tempfile
 import torch
 import mlflow
+from loguru import logger
 from PIL import Image
 
 from src.constants import TRACKING_URI
@@ -20,6 +21,7 @@ FEATURE_MAP = {
     "eyes": CompositeFeature.eyes,
     "nose": Feature.nose,
     "mouth": CompositeFeature.mouth,
+    "hair": Feature.hair,
 }
 
 
@@ -110,6 +112,8 @@ def main():
                 target_idx=config["TARGET_INDEX"],
                 ref_indices=ref_indices,
                 features=features,
+                tau=config["TAU"],
+                nfe=config["NFE"],
             )
 
             model = get_classifier().to(device)
@@ -177,10 +181,10 @@ def main():
                     plot_file,
                     artifact_path="shapley/plots",
                 )
-
-                print(f"Logged {config['N']}-Shapley values to MLflow")
-                print(f"Logged {config['N']}-Shapley features to MLflow")
-                print(f"Logged {config['N']}-Shapley plot to MLflow")
+                
+                logger.info(f"Logged {config['N']}-Shapley values to MLflow")
+                logger.info(f"Logged {config['N']}-Shapley features to MLflow")
+                logger.info(f"Logged {config['N']}-Shapley plot to MLflow")
 
         finally:
             if face_keypoint_detector is not None:

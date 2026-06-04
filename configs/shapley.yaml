@@ -1,12 +1,15 @@
 TARGET_INDEX: 9
-REF_INDICES_RANGE: [1, 4]
-N: 1
+REF_INDICES_RANGE: [10, 40]
+N: 2
 CLASSIFIER_LABEL: "male"
 DATASET_SPLIT: "test"
 FEATURES: 
   - eyes
   - nose
   - mouth
+  - hair 
+TAU: 0.5
+NFE: 100
 PRED_PROB: false
 MLFLOW_EXPERIMENT_NAME: "shapley"
-MLFLOW_RUN_NAME: "target_9_n1_male"
+MLFLOW_RUN_NAME: "target_9_n2_male_4"

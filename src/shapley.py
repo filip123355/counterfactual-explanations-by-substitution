@@ -55,6 +55,8 @@ class NShapleyValueCalculator:
         target_idx: int,
         ref_indices: List[int],
         features: List[FeatureType],
+        tau: float,
+        nfe: int,
     ) -> dict:
         N = set(features)
         coalition_images = {}
@@ -80,7 +82,8 @@ class NShapleyValueCalculator:
                         src_idx=ref_idx, 
                         dest_idx=target_idx, 
                         feature=feat, 
-                        image=current_img
+                        image=current_img,
+                        skip_missing=True,
                     )
                     
                     mask_dict = self.dataset.get(target_idx, feature=feat, inflate_mask=10)
@@ -92,9 +95,9 @@ class NShapleyValueCalculator:
                     inpainted_img = self.inpainter.inpaint(
                         image=current_img,
                         mask=combined_mask,
-                        tau=0.5,
+                        tau=tau,
                         sampler_type=SampleType.DDPM,
-                        nfe=100,
+                        nfe=nfe,
                     )
                     inpainted_for_S.append(inpainted_img)
                 else:
@@ -217,6 +220,8 @@ if __name__ == "__main__":
             target_idx=TARGET_INDEX,
             ref_indices=REF_INDICES,
             features=features,
+            tau=0.5,
+            nfe=100,
         )
 
         model = get_classifier().to(device)
