@@ -5,7 +5,6 @@ import itertools
 import torch
 from PIL import Image
 
-from src.constants import PROJECT_ROOT, CLASSIFIER_LABEL
 from src.data_loading import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
 from src.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
@@ -21,6 +20,8 @@ class BilinearModel:
         self,
         features: list[str],
         target_idx: int,
+        first_order_values_path: str,
+        second_order_values_path: str,
         interaction_level: int = 2,
         dataset: CelebADataset | None = None,
         face_keypoint_detector: FaceKeypointDetector | None = None,
@@ -31,7 +32,7 @@ class BilinearModel:
         self.face_keypoint_detector = face_keypoint_detector
         self.interaction_level = interaction_level
 
-        self.load_coefficients(PROJECT_ROOT)
+        self.load_coefficients(first_order_values_path, second_order_values_path)
 
     @staticmethod
     def _parse_feature(feature: str | FeatureType) -> FeatureType:
@@ -46,11 +47,14 @@ class BilinearModel:
 
         raise ValueError(f"Unknown feature: {feature}")
 
-    def load_coefficients(self, path: str) -> None:
-        path = path / "results" / str(self.target_idx) / CLASSIFIER_LABEL / "shapley_values"
-        with open(path / f"target_{self.target_idx}_1_shapley_values.json", "r") as f:
+    def load_coefficients(
+        self,
+        first_order_values_path: str,
+        second_order_values_path: str,
+    ) -> None:
+        with open(first_order_values_path, "r", encoding="utf-8") as f:
             first_order_values = json.load(f)
-        with open(path / f"target_{self.target_idx}_2_shapley_values.json", "r") as f:
+        with open(second_order_values_path, "r", encoding="utf-8") as f:
             second_order_values = json.load(f)
         self.first_order_coefficients = np.array(list(first_order_values.values()))
         self.second_order_coefficients = np.array(list(second_order_values.values()))
@@ -146,6 +150,8 @@ if __name__ == "__main__":
     bilinear_model = BilinearModel(
         features=features,
         target_idx=9,
+        first_order_values_path="results/9/male/shapley_values/target_9_1_shapley_values.json",
+        second_order_values_path="results/9/male/shapley_values/target_9_2_shapley_values.json",
         dataset=dataset,
         face_keypoint_detector=face_keypoint_detector,
     )

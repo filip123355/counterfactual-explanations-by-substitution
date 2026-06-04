@@ -129,9 +129,9 @@ def main():
 
             for key, value in shapely_values.items():
                 mlflow.log_metric(
-                    _shapley_key_to_str(key)[1:-1],
+                    "_".join(_shapley_key_to_str(key)[1:-1].split(", ")),
                     float(value),
-                )
+                ) 
 
             print(f"{config['N']}-Shapley interaction values:", shapely_values)
 

@@ -1,6 +1,7 @@
 import torch
 import mlflow
 from loguru import logger
+from mlflow.tracking import MlflowClient
 
 from src.bilinear_model import BilinearModel
 from src.data_loading import CelebADataset, CompositeFeature, Feature
@@ -18,6 +19,16 @@ FEATURE_MAP = {
 }
 
 
+def download_shapley_values_artifact(
+    client: MlflowClient,
+    run_id: str,
+    target_idx: int,
+    n: int,
+) -> str:
+    artifact_path = f"shapley/values/target_{target_idx}_{n}_shapley_values.json"
+    return client.download_artifacts(run_id, artifact_path)
+
+
 def main():
 
     args = parse_args()
@@ -28,7 +39,7 @@ def main():
 
     run_name = config.get(
         "MLFLOW_RUN_NAME",
-        f"target_{config['TARGET_INDEX']}_n_{config['N']}",
+        f"target_{config['TARGET_INDEX']}",
     )
 
     with mlflow.start_run(run_name=run_name):
@@ -42,9 +53,24 @@ def main():
         face_keypoint_detector = MediapipeFaceKeypointDetector()
         model = get_classifier().to(device)
         features = [FEATURE_MAP[feature] for feature in config["FEATURES"]]
+        client = MlflowClient(tracking_uri=TRACKING_URI)
+        first_order_values_path = download_shapley_values_artifact(
+            client=client,
+            run_id=config["SHAPLEY_1_RUN_ID"],
+            target_idx=config["TARGET_INDEX"],
+            n=1,
+        )
+        second_order_values_path = download_shapley_values_artifact(
+            client=client,
+            run_id=config["SHAPLEY_2_RUN_ID"],
+            target_idx=config["TARGET_INDEX"],
+            n=2,
+        )
         bilinear_model = BilinearModel(
             features=features,
             target_idx=config["TARGET_INDEX"],
+            first_order_values_path=first_order_values_path,
+            second_order_values_path=second_order_values_path,
             dataset=dataset,
             face_keypoint_detector=face_keypoint_detector,
         )
