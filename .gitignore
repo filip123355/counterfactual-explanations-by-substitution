@@ -214,3 +214,8 @@ data/
 results/
 inpainting_results/
 generated/
+
+
+# MLflow
+mlruns/
+mlflow.db

@@ -43,6 +43,7 @@ class Substitution:
         feature: FeatureType,
         image: Image.Image | None = None,
         plot_points: bool = False,
+        skip_missing: bool = False,
     ) -> Image.Image:
         feature_parts = get_base_features(feature)
         substituted_image = image
@@ -77,7 +78,7 @@ class Substitution:
 
             src_mask, dest_mask = src_item["mask"], dest_item["mask"]
             if src_mask is None or dest_mask is None:
-                if is_composite:
+                if is_composite or skip_missing:
                     logger.warning(
                         f"Skipping feature part {feature_part} due to missing mask."
                     )
@@ -87,7 +88,7 @@ class Substitution:
 
             src_bbox, dest_bbox = src_item["bbox"], dest_item["bbox"]
             if src_bbox is None or dest_bbox is None:
-                if is_composite:
+                if is_composite or skip_missing:
                     logger.warning(
                         f"Skipping feature part {feature_part} due to missing bounding box."
                     )

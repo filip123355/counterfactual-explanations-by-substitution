@@ -1,4 +1,8 @@
 import torch
+import argparse
+import yaml
+import mlflow
+import json
 
 
 def assert_not_none[T](val: T | None) -> T:
@@ -31,3 +35,26 @@ def space_indices(num_steps: int, count: int) -> list[int]:
         cur_idx += frac_stride
 
     return taken_steps
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to the YAML file with configuration",
+    )
+    return parser.parse_args()
+
+
+def load_config(config_path: str) -> dict:
+    with open(config_path, "r", encoding="utf-8") as file:
+        return yaml.safe_load(file)
+
+
+def log_config_params(config: dict) -> None:
+    for key, value in config.items():
+        if isinstance(value, (dict, list, tuple)):
+            mlflow.log_param(key, json.dumps(value, ensure_ascii=False))
+        else:
+            mlflow.log_param(key, value)

@@ -16,7 +16,7 @@ DATASET: str = config("DATA_PATH")
 FACE_LANDMARK_MODEL_PATH: str = config("FACE_LANDMARK_MODEL_PATH")
 
 # Training parameters
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 
 # Other
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -82,3 +82,6 @@ MODEL_KWARGS = {
     "use_new_attention_order": False,
     "use_scale_shift_norm": True,
 }
+
+# MLflow
+TRACKING_URI = config("TRACKING_URI", default="sqlite:///mlflow.db")
