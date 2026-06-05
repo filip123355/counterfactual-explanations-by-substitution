@@ -1,5 +1,7 @@
+import os
 import torch
 import mlflow
+from PIL import Image
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
@@ -7,8 +9,11 @@ from src.bilinear_model import BilinearModel
 from src.data_loading import CelebADataset, CompositeFeature, Feature
 from src.inpainter.guidance.classifier import get_classifier
 from src.keypoints import MediapipeFaceKeypointDetector
+from src.inpainter.i2sb import I2SB
 from src.utils import load_config, parse_args, log_config_params
 from src.constants import TRACKING_URI
+from src.inpainter.guidance import CLIPGuidance
+from src.clip_inferance import load_clip
 
 
 FEATURE_MAP = {
@@ -66,18 +71,26 @@ def main():
             target_idx=config["TARGET_INDEX"],
             n=2,
         )
+        guidance = CLIPGuidance(load_clip(device=device))
+        target_hq_idx = dataset.data.iloc[config["TARGET_INDEX"]]["idx"]
+        target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
+        guidance.set_target(target_img=Image.open(target_image_path).convert("RGB"))
+        inpainter = I2SB(device=device, guidance=guidance)
         bilinear_model = BilinearModel(
             features=features,
             target_idx=config["TARGET_INDEX"],
             first_order_values_path=first_order_values_path,
             second_order_values_path=second_order_values_path,
             dataset=dataset,
+            inpainter=inpainter,
             face_keypoint_detector=face_keypoint_detector,
         )
         r_squared = bilinear_model.calculate_r_squared(
             ref_indices=list(range(config["REF_INDICES_RANGE"][0], config["REF_INDICES_RANGE"][1])), 
             model=model, 
             device=device,
+            tau=config["TAU"],
+            nfe=config["NFE"],
         )
 
         mlflow.log_metric("r_squared", r_squared)

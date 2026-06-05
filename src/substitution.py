@@ -43,7 +43,7 @@ class Substitution:
         feature: FeatureType,
         image: Image.Image | None = None,
         plot_points: bool = False,
-        skip_missing: bool = False,
+        skip_missing: bool = True,
     ) -> Image.Image:
         feature_parts = get_base_features(feature)
         substituted_image = image

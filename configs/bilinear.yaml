@@ -9,6 +9,8 @@ FEATURES:
   - nose
   - mouth
   - hair
+TAU: 0.5
+NFE: 100
 PRED_PROB: false
 MLFLOW_EXPERIMENT_NAME: "bilinear"
 MLFLOW_RUN_NAME: "target_9_male_4"
