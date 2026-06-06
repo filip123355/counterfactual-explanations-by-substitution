@@ -5,23 +5,18 @@ import itertools
 import torch
 from PIL import Image
 
-from src.data_loading import CelebADataset, CompositeFeature, Feature, FeatureType
+from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
-from src.inpainter.i2sb import I2SB, SampleType
-from src.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
-from src.substitution import Substitution
-from src.inpainter.guidance import CLIPGuidance
-from src.clip_inferance import load_clip
-from src.shapley import NShapleyValueCalculator
+from src.substitution import Substitution, FaceKeypointDetector, MediapipeFaceKeypointDetector
+from .calculator import NShapleyValueCalculator
 
 class BilinearModel:
-
     first_order_coefficients: np.ndarray
     second_order_coefficients: np.ndarray
 
     def __init__(
         self,
-        features: list[str],
+        features: list[str | FeatureType],
         target_idx: int,
         first_order_values_path: str,
         second_order_values_path: str,
@@ -86,11 +81,13 @@ class BilinearModel:
             tau: float = 0.5,
             nfe: int = 100,
     ) -> float:
+        assert self.dataset is not None
 
         target_hq_idx = self.dataset.data.iloc[self.target_idx]["idx"]
         target_image_path = os.path.join(self.dataset.img_dir, f"{target_hq_idx}.jpg")
         target_item = Image.open(target_image_path).convert("RGB")
         
+        assert self.face_keypoint_detector is not None
         substitution = Substitution(self.dataset, self.face_keypoint_detector)
 
         inpainted_ref_images = []
@@ -177,12 +174,17 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
     face_keypoint_detector = MediapipeFaceKeypointDetector()
     model = get_classifier().to(device)
+<<<<<<< HEAD:src/bilinear_model.py
     features = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
     guidance = CLIPGuidance(load_clip(device=device))
     target_hq_idx = dataset.data.iloc[TARGET_INDEX]["idx"]
     target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
     guidance.set_target(target_img=Image.open(target_image_path).convert("RGB"))
     inpainter = I2SB(device=device, guidance=guidance)
+=======
+    features: list[FeatureType | str] = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
+
+>>>>>>> fa8f9ccf342137294c63f60bdc665a734b5b779c:src/shapley/bilinear_model.py
     bilinear_model = BilinearModel(
         features=features,
         target_idx=9,

@@ -9,7 +9,7 @@ from torch_ema import ExponentialMovingAverage
 from torchvision import transforms
 
 import src.utils as util
-from src.clip_inferance import load_clip
+from src.interface import load_clip
 from src.constants import (
     BETA_MAX,
     CLIP_DENOISE,
@@ -25,7 +25,7 @@ from src.constants import (
     USE_FP16,
     T,
 )
-from src.data_loading import (
+from src.data import (
     CelebADataset,
     CompositeFeature,
 )
@@ -33,8 +33,7 @@ from src.inpainter.diffusion import Diffusion
 from src.inpainter.guidance import ClassifierGuidance, CLIPGuidance, Guidance
 from src.inpainter.network import Image256Net
 from src.inpainter.transforms import I2SB_TO_PIL, PIL_TO_I2SB
-from src.keypoints import MediapipeFaceKeypointDetector
-from src.substitution import Substitution
+from src.substitution import Substitution, MediapipeFaceKeypointDetector
 from src.visualize import show_inpanting
 
 

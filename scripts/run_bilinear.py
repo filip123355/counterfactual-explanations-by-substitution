@@ -5,16 +5,12 @@ from PIL import Image
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
-from src.bilinear_model import BilinearModel
-from src.data_loading import CelebADataset, CompositeFeature, Feature
+from src.shapley import BilinearModel
+from src.data import CelebADataset, CompositeFeature, Feature
 from src.inpainter.guidance.classifier import get_classifier
-from src.keypoints import MediapipeFaceKeypointDetector
-from src.inpainter.i2sb import I2SB
+from src.substitution import MediapipeFaceKeypointDetector
 from src.utils import load_config, parse_args, log_config_params
 from src.constants import TRACKING_URI
-from src.inpainter.guidance import CLIPGuidance
-from src.clip_inferance import load_clip
-
 
 FEATURE_MAP = {
     "eyes": CompositeFeature.eyes,
@@ -77,7 +73,7 @@ def main():
         guidance.set_target(target_img=Image.open(target_image_path).convert("RGB"))
         inpainter = I2SB(device=device, guidance=guidance)
         bilinear_model = BilinearModel(
-            features=features,
+            features=features, # ty: ignore
             target_idx=config["TARGET_INDEX"],
             first_order_values_path=first_order_values_path,
             second_order_values_path=second_order_values_path,

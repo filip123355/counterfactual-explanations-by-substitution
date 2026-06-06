@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from transformers import CLIPModel, CLIPProcessor
 
 from src.constants import BATCH_SIZE, CLIP_MODEL_NAME, DATASET, USE_FP16
-from src.data_loading import (
+from src.data import (
     CelebADataset,
     CelebAFeatureDataset,
     CelebAItem,
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     # print(f"Embeddings shape: {embeddings.shape}, IDs shape: {ids.shape}")
 
     # Test 4
-    from src.data_loading import CelebAFeatureDataset
+    from src.data import CelebAFeatureDataset
 
     dataset = CelebAFeatureDataset(
         dataset=CelebADataset(split="train"),

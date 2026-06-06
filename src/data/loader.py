@@ -166,8 +166,8 @@ class CelebADataset:
     def get(
         self,
         index: int,
-        feature: FeatureType,
         *,
+        feature: FeatureType | None = None,
         padding: int = 20,
         inflate_mask: int = 0,
     ) -> CelebAItem:
@@ -177,7 +177,7 @@ class CelebADataset:
         full_image = Image.open(img_path).convert("RGB")
         bbox_and_mask = self._get_bbox_and_mask(
             hq_idx, feature, inflate_mask=inflate_mask
-        )
+        ) if feature is not None else None
 
         if bbox_and_mask is None:
             cropped_image = None
