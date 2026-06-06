@@ -114,6 +114,7 @@ class BilinearModel:
 
             if mask_list:
                 combined_mask = NShapleyValueCalculator._combine_masks(mask_list)
+                assert self.inpainter is not None and combined_mask is not None
                 inpainted_img = self.inpainter.inpaint(
                     image=substituted_image,
                     mask=combined_mask,
