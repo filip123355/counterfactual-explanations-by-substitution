@@ -140,6 +140,8 @@ def main():
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             mlflow.log_param("device", str(device))
 
+            target = dataset.get(config["TARGET_INDEX"])
+
             ref_indices = list(
                 range(
                     config["REF_INDICES_RANGE"][0],
@@ -147,17 +149,15 @@ def main():
                 )
             ) if "REF_INDICES_RANGE" in config else sampler.sample(
                 n_samples=config["N_SAMPLES"],
-                ratio=config["SAMPLE_RATIO"],
                 label=config["CLASSIFIER_LABEL"].capitalize(),
+                ratio=1.0 if target["label_value"] == 0 else 0.0,
             )
 
+            logger.info(f"Selected reference indices: {ref_indices}")
+
             guidance = CLIPGuidance(load_clip(device=device))
-
-            target_hq_idx = dataset.data.iloc[config["TARGET_INDEX"]]["idx"]
-            target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
-
             guidance.set_target(
-                target_img=Image.open(target_image_path).convert("RGB")
+                target_img=target["full_image"]
             )
 
             inpainter = I2SB(
