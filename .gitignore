@@ -210,7 +210,7 @@ models/
 project-data/
 
 rcsb/
-data/
+/data/
 results/
 inpainting_results/
 generated/

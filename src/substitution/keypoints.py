@@ -7,7 +7,7 @@ from loguru import logger
 from PIL import Image
 
 from src.constants import FACE_LANDMARK_MODEL_PATH
-from src.data_loading import CELEB_HQ_SIZE
+from src.data import CELEB_HQ_SIZE
 
 
 class FaceKeypointDetector:

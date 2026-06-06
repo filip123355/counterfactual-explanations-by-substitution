@@ -10,7 +10,7 @@ from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 from transformers.image_utils import SizeDict
 
-from src.clip_inferance import CLIPInference
+from src.interface import CLIPInference
 from src.constants import CLASSIFIER_SCALE, INTERVAL, USE_FP16
 from src.inpainter.guidance.classifier import get_classifier
 from src.inpainter.guidance.utils import ADAMGradientStabilization, AdaptiveNormalizer

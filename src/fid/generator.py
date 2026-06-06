@@ -7,11 +7,10 @@ from loguru import logger
 from tqdm import tqdm
 
 from src.constants import I2SB_IMAGE_SIZE, I2SB_MASK_INFLATION
-from src.data_loading import CelebADataset, CompositeFeature, Feature
+from src.data import CelebADataset, CompositeFeature, Feature
 from src.inpainter.guidance import ClassifierGuidance
 from src.inpainter.i2sb import I2SB, SampleType
-from src.keypoints import MediapipeFaceKeypointDetector
-from src.substitution import Substitution
+from src.substitution import Substitution, MediapipeFaceKeypointDetector
 
 
 class FIDGenerator:

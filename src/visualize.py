@@ -2,11 +2,11 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from collections.abc import Mapping
 
-from src.data_loading import (
+from src.data import (
     CelebADataset,
     CelebAFeatureDataset,
     CelebAItem,
-    CompositeFeature,
+    CompositeFeature, FeatureType,
 )
 
 
@@ -97,7 +97,7 @@ def show_top_k_similar(
 
 
 def show_shapley_values(
-    shapley_values: Mapping[object, float],
+    shapley_values: Mapping[tuple[FeatureType, ...], float],
     save_path: str | None = None,
     title: str = "Shapley Values",
 ):
