@@ -58,7 +58,9 @@ def main():
         face_keypoint_detector = MediapipeFaceKeypointDetector()
         model = get_classifier().to(device)
         features = [FEATURE_MAP[feature] for feature in config["FEATURES"]]
+
         client = MlflowClient(tracking_uri=TRACKING_URI)
+
         first_order_values_path = download_shapley_values_artifact(
             client=client,
             run_id=config["SHAPLEY_1_RUN_ID"],
@@ -71,11 +73,13 @@ def main():
             target_idx=config["TARGET_INDEX"],
             n=2,
         )
+
         guidance = CLIPGuidance(load_clip(device=device))
         target_hq_idx = dataset.data.iloc[config["TARGET_INDEX"]]["idx"]
         target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
         guidance.set_target(target_img=Image.open(target_image_path).convert("RGB"))
         inpainter = I2SB(device=device, guidance=guidance)
+
         bilinear_model = BilinearModel(
             features=features,
             target_idx=config["TARGET_INDEX"],
@@ -85,6 +89,7 @@ def main():
             inpainter=inpainter,
             face_keypoint_detector=face_keypoint_detector,
         )
+        
         r_squared = bilinear_model.calculate_r_squared(
             ref_indices=list(range(config["REF_INDICES_RANGE"][0], config["REF_INDICES_RANGE"][1])), 
             model=model, 

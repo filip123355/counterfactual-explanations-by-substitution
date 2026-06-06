@@ -22,6 +22,8 @@ FEATURE_MAP = {
     "nose": Feature.nose,
     "mouth": CompositeFeature.mouth,
     "hair": Feature.hair,
+    "eye_g": Feature.eye_g,
+    "hat": Feature.hat,
 }
 
 
@@ -65,7 +67,7 @@ def main():
         range(
             config["REF_INDICES_RANGE"][0],
             config["REF_INDICES_RANGE"][1],
-        )
+        ) if config.get("REF_INDICES_IND", False) else config["REF_INDICES_RANGE"]
     )
 
     mlflow.set_tracking_uri(TRACKING_URI)
@@ -124,7 +126,7 @@ def main():
                 coalition_images=coalition_images,
                 features=features,
                 device=device,
-                pred_prob=True,
+                pred_prob=config["PRED_PROB"],
             )
 
             for key, value in shapely_values.items():
