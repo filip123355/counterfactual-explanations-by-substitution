@@ -4,14 +4,14 @@ import numpy as np
 from loguru import logger
 from PIL import Image
 
-from src.data_loading import (
+from src.data import (
     CelebADataset,
     CompositeFeature,
     Feature,
     FeatureType,
     get_base_features,
 )
-from src.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
+from src.substitution.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
 from src.utils import assert_not_none
 from src.visualize import show_substitution
 

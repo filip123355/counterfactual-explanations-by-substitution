@@ -1,3 +1,4 @@
+from src.data.sampler import StratifiedSampler
 import os
 import json
 import tempfile
@@ -5,15 +6,15 @@ import torch
 import mlflow
 from loguru import logger
 from PIL import Image
+import matplotlib.pyplot as plt
 
 from src.constants import TRACKING_URI
-from src.data_loading import CelebADataset, CompositeFeature, Feature
+from src.data import CelebADataset, CompositeFeature, Feature
 from src.inpainter.i2sb import I2SB
-from src.keypoints import MediapipeFaceKeypointDetector
 from src.inpainter.guidance import CLIPGuidance, get_classifier
-from src.clip_inferance import load_clip
-from src.shapley import NShapleyValueCalculator, _shapley_key_to_str
-from src.substitution import Substitution
+from src.interface import load_clip
+from src.shapley import NShapleyValueCalculator, shapley_key_to_str
+from src.substitution import Substitution, MediapipeFaceKeypointDetector
 from src.visualize import show_shapley_values
 from src.utils import log_config_params, parse_args, load_config
 
@@ -27,7 +28,7 @@ FEATURE_MAP = {
 
 def save_shapley_values_json(shapely_values: dict, output_path: str) -> None:
     serializable_values = {
-        _shapley_key_to_str(key): float(value)
+        shapley_key_to_str(key): float(value)
         for key, value in shapely_values.items()
     }
 
@@ -42,7 +43,7 @@ def save_shapley_values_json(shapely_values: dict, output_path: str) -> None:
 
 def save_shapley_features_json(shapely_values: dict, output_path: str) -> None:
     serializable_features = {
-        _shapley_key_to_str(key): _shapley_key_to_str(key)
+        shapley_key_to_str(key): shapley_key_to_str(key)
         for key in shapely_values.keys()
     }
 
@@ -54,19 +55,17 @@ def save_shapley_features_json(shapely_values: dict, output_path: str) -> None:
             ensure_ascii=False,
         )
 
+def calculate_shapley_difference(prev: dict, current: dict) -> float:
+    max_diff = 0.0
+    for key in current.keys():
+        assert key in prev
+        diff = abs(float(current[key]) - float(prev[key]))
+        max_diff = max(max_diff, diff)
+    return max_diff
 
 def main():
     args = parse_args()
     config = load_config(args.config)
-
-    face_keypoint_detector = None
-
-    ref_indices = list(
-        range(
-            config["REF_INDICES_RANGE"][0],
-            config["REF_INDICES_RANGE"][1],
-        )
-    )
 
     mlflow.set_tracking_uri(TRACKING_URI)
     mlflow.set_experiment(config["MLFLOW_EXPERIMENT_NAME"])
@@ -81,10 +80,22 @@ def main():
 
         try:
             dataset = CelebADataset(split="test")
+            sampler = StratifiedSampler(dataset)
             face_keypoint_detector = MediapipeFaceKeypointDetector()
 
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             mlflow.log_param("device", str(device))
+
+            ref_indices = list(
+                range(
+                    config["REF_INDICES_RANGE"][0],
+                    config["REF_INDICES_RANGE"][1],
+                )
+            ) if "REF_INDICES_RANGE" in config else sampler.sample(
+                n_samples=config["N_SAMPLES"],
+                ratio=config["SAMPLE_RATIO"],
+                label=config["CLASSIFIER_LABEL"].capitalize(),
+            )
 
             guidance = CLIPGuidance(load_clip(device=device))
 
@@ -114,82 +125,118 @@ def main():
                 features=features,
                 tau=config["TAU"],
                 nfe=config["NFE"],
+                keep_intermediate=config["KEEP_INTERMEDIATE_VALUES"],
             )
 
             model = get_classifier().to(device)
 
-            shapely_values = shap_calculator.compute_n_shapley_values(
+            shapely_values_batch = shap_calculator.compute_n_shapley_values(
                 n=config["N"],
                 model=model,
                 coalition_images=coalition_images,
                 features=features,
                 device=device,
-                pred_prob=True,
+                pred_prob=config["PRED_PROB"],
             )
 
-            for key, value in shapely_values.items():
-                mlflow.log_metric(
-                    "_".join(_shapley_key_to_str(key)[1:-1].split(", ")),
-                    float(value),
-                ) 
+            prefixes = sorted(shapely_values_batch.keys())
+            prev_shapley_values = None
+            differences = []
 
-            print(f"{config['N']}-Shapley interaction values:", shapely_values)
+            for i in prefixes:
+                shapely_values = shapely_values_batch[i]
+                for key, value in shapely_values.items():
+                    mlflow.log_metric(
+                        "_".join(shapley_key_to_str(key)[1:-1].split(", "))+f"_{i}",
+                        float(value),
+                    ) 
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                value_file = os.path.join(
-                    tmpdir,
-                    f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values.json",
-                )
+                print(f"{config['N']}-Shapley interaction values for prefix {i}:", shapely_values)
 
-                features_file = os.path.join(
-                    tmpdir,
-                    f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_features.json",
-                )
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    value_file = os.path.join(
+                        tmpdir,
+                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values.json",
+                    )
 
-                plot_file = os.path.join(
-                    tmpdir,
-                    f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values.png",
-                )
+                    features_file = os.path.join(
+                        tmpdir,
+                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_features.json",
+                    )
 
-                save_shapley_values_json(
-                    shapely_values=shapely_values,
-                    output_path=value_file,
-                )
+                    plot_file = os.path.join(
+                        tmpdir,
+                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values.png",
+                    )
 
-                save_shapley_features_json(
-                    shapely_values=shapely_values,
-                    output_path=features_file,
-                )
+                    save_shapley_values_json(
+                        shapely_values=shapely_values,
+                        output_path=value_file,
+                    )
 
-                show_shapley_values(
-                    shapely_values,
-                    save_path=plot_file,
-                    title=f"{config['N']}-Shapley Interaction Values for Facial Features",
-                )
+                    save_shapley_features_json(
+                        shapely_values=shapely_values,
+                        output_path=features_file,
+                    )
 
-                mlflow.log_artifact(
-                    value_file,
-                    artifact_path="shapley/values",
-                )
+                    show_shapley_values(
+                        shapely_values,
+                        save_path=plot_file,
+                        title=f"{config['N']}-Shapley Interaction Values for Facial Features",
+                    )
 
-                mlflow.log_artifact(
-                    features_file,
-                    artifact_path="shapley/features",
-                )
+                    mlflow.log_artifact(
+                        value_file,
+                        artifact_path=f"shapley/values/{i}",
+                    )
 
-                mlflow.log_artifact(
-                    plot_file,
-                    artifact_path="shapley/plots",
-                )
+                    mlflow.log_artifact(
+                        features_file,
+                        artifact_path=f"shapley/features/{i}",
+                    )
+
+                    mlflow.log_artifact(
+                        plot_file,
+                        artifact_path=f"shapley/plots/{i}",
+                    )
+
                 
-                logger.info(f"Logged {config['N']}-Shapley values to MLflow")
-                logger.info(f"Logged {config['N']}-Shapley features to MLflow")
-                logger.info(f"Logged {config['N']}-Shapley plot to MLflow")
+                if prev_shapley_values is not None:
+                    diff = calculate_shapley_difference(prev_shapley_values, shapely_values)
+                    differences.append((i, diff))
+
+                prev_shapley_values = shapely_values
+                
+            logger.info(f"Logged {config['N']}-Shapley values to MLflow")
+            logger.info(f"Logged {config['N']}-Shapley features to MLflow")
+            logger.info(f"Logged {config['N']}-Shapley plot to MLflow")
+
+            if config["KEEP_INTERMEDIATE_VALUES"]:
+                plt.figure(figsize=(10, 6))
+                x, y = zip(*differences)
+                plt.plot(x, y, marker='o')
+                plt.title(f"Difference in {config['N']}-Shapley Values Between Prefixes")
+                plt.xlabel("Prefix")
+                plt.ylabel("Difference in Shapley Values")
+                plt.xticks(rotation=45)
+                plt.tight_layout()
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    diff_plot_file = os.path.join(
+                        tmpdir,
+                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_difference.png",
+                    )
+                    plt.savefig(diff_plot_file)
+
+                    mlflow.log_artifact(
+                        diff_plot_file,
+                        artifact_path="shapley/differences",
+                    )
 
         finally:
             if face_keypoint_detector is not None:
                 try:
-                    face_keypoint_detector.close()
+                    face_keypoint_detector.close() # ty: ignore
                 except Exception:
                     pass
 

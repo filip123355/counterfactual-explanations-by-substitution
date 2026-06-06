@@ -5,20 +5,18 @@ import itertools
 import torch
 from PIL import Image
 
-from src.data_loading import CelebADataset, CompositeFeature, Feature, FeatureType
+from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
-from src.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
-from src.substitution import Substitution
-from src.shapley import NShapleyValueCalculator
+from src.substitution import Substitution, FaceKeypointDetector, MediapipeFaceKeypointDetector
+from .calculator import NShapleyValueCalculator
 
 class BilinearModel:
-
     first_order_coefficients: np.ndarray
     second_order_coefficients: np.ndarray
 
     def __init__(
         self,
-        features: list[str],
+        features: list[str | FeatureType],
         target_idx: int,
         first_order_values_path: str,
         second_order_values_path: str,
@@ -79,11 +77,13 @@ class BilinearModel:
             device: torch.device,
             predict_prob: bool = False,
     ) -> float:
+        assert self.dataset is not None
 
         target_hq_idx = self.dataset.data.iloc[self.target_idx]["idx"]
         target_image_path = os.path.join(self.dataset.img_dir, f"{target_hq_idx}.jpg")
         target_item = Image.open(target_image_path).convert("RGB")
         
+        assert self.face_keypoint_detector is not None
         substitution = Substitution(self.dataset, self.face_keypoint_detector)
 
         ref_images = []
@@ -146,7 +146,8 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
     face_keypoint_detector = MediapipeFaceKeypointDetector()
     model = get_classifier().to(device)
-    features = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
+    features: list[FeatureType | str] = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
+
     bilinear_model = BilinearModel(
         features=features,
         target_idx=9,

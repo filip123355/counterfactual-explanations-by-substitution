@@ -1,3 +1,4 @@
+from collections import defaultdict
 import itertools
 import math
 import json
@@ -8,20 +9,20 @@ import numpy as np
 import torch
 from PIL import Image
 
-from src.data_loading import CelebADataset, CompositeFeature, Feature, FeatureType
+from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.i2sb import I2SB, SampleType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
-from src.substitution import Substitution
-from src.keypoints import MediapipeFaceKeypointDetector
+from src.substitution import Substitution, MediapipeFaceKeypointDetector
 from src.inpainter.guidance import CLIPGuidance
-from src.clip_inferance import load_clip
+from src.interface import load_clip
 from src.visualize import show_shapley_values
 from src.constants import PROJECT_ROOT, CLASSIFIER_LABEL
 
+from loguru import logger
 
-def _shapley_key_to_str(key: object) -> str:
+def shapley_key_to_str(key: object) -> str:
     if isinstance(key, tuple):
-        return "(" + ", ".join(_shapley_key_to_str(item) for item in key) + ")"
+        return "(" + ", ".join(shapley_key_to_str(item) for item in key) + ")"
     return str(key.value if hasattr(key, "value") else key)
 
 class NShapleyValueCalculator:
@@ -37,7 +38,7 @@ class NShapleyValueCalculator:
         self.inpainter = inpainter
 
     @staticmethod
-    def _combine_masks(mask_list: List[np.ndarray]) -> np.ndarray:
+    def _combine_masks(mask_list: List[np.ndarray]) -> np.ndarray | None:
         if not mask_list:
             return None
         combined = mask_list[0].copy()
@@ -57,9 +58,10 @@ class NShapleyValueCalculator:
         features: List[FeatureType],
         tau: float,
         nfe: int,
-    ) -> dict:
+        keep_intermediate: bool = False,
+    ) -> dict[int, dict[tuple[FeatureType, ...], list[Image.Image]]]:
         N = set(features)
-        coalition_images = {}
+        coalition_images: dict[int, dict[tuple[FeatureType, ...], list[Image.Image]]] = defaultdict(dict)
 
         target_item = self._load_full_image(target_idx)
         
@@ -71,9 +73,11 @@ class NShapleyValueCalculator:
             S_set = set(S)
             not_in_S = list(N - S_set) 
             
+            logger.info(f"Preparing coalition for subset {S} (not in S: {not_in_S})")
+
             inpainted_for_S = []
             
-            for ref_idx in ref_indices:
+            for i, ref_idx in enumerate(ref_indices):
                 current_img = target_item.copy()
                 mask_list = []
 
@@ -92,6 +96,8 @@ class NShapleyValueCalculator:
                 
                 if mask_list:
                     combined_mask = self._combine_masks(mask_list)
+                    assert combined_mask is not None
+
                     inpainted_img = self.inpainter.inpaint(
                         image=current_img,
                         mask=combined_mask,
@@ -101,9 +107,14 @@ class NShapleyValueCalculator:
                     )
                     inpainted_for_S.append(inpainted_img)
                 else:
+                    logger.warning(f"No valid masks found for features {not_in_S} at index {target_idx}. Using original image.")
                     inpainted_for_S.append(current_img)
                     
-            coalition_images[tuple(sorted(S))] = inpainted_for_S
+                if keep_intermediate:
+                    coalition_images[i+1][tuple(sorted(S))] = inpainted_for_S[:]
+
+            if not keep_intermediate:
+                coalition_images[len(ref_indices)][tuple(sorted(S))] = inpainted_for_S
             
         return coalition_images
     
@@ -111,25 +122,43 @@ class NShapleyValueCalculator:
     def prepare_image(image: Image.Image) -> torch.Tensor:
         tensor = torch.from_numpy(np.array(image)) / 255.0
         return tensor.permute(2, 0, 1).float() 
-    
+
     def _compute_subset_values(
-        self,
-        model: DenseNetClassifier,
-        coalition_images: dict,
-        device: torch.device,
-        pred_prob: bool = False,
-    ) -> dict[tuple[FeatureType, ...], float]:
-        values = {}
-        for coalition, images_list in coalition_images.items():
-            images = torch.stack(
-                [self.prepare_image(img) for img in images_list],
-                dim=0,
-            ).to(device)
-            if pred_prob:
-                out = model.pred_prob(images)
-            else:
-                out = model(images)
-            values[coalition] = out[:, 0].mean().item()
+            self,
+            model: DenseNetClassifier,
+            coalition_images: dict[int, dict[tuple[FeatureType, ...], list[Image.Image]]],
+            device: torch.device,
+            pred_prob: bool = False,
+            batch_size: int = 16,
+    ) -> dict[int, dict[tuple[FeatureType, ...], float]]:
+        values: dict[int, dict[tuple[FeatureType, ...], float]] = defaultdict(dict)
+
+        for i, coalition_dict in coalition_images.items():
+            for coalition, images_list in coalition_dict.items():
+                all_outputs = []
+                
+                for j in range(0, len(images_list), batch_size):
+                    batch_images = images_list[j : j + batch_size]
+                    
+                    images_tensor = torch.stack(
+                        [self.prepare_image(img) for img in batch_images],
+                        dim=0,
+                    ).to(device)
+                    
+                    with torch.no_grad():
+                        if pred_prob:
+                            out = model.pred_prob(images_tensor)
+                        else:
+                            out = model(images_tensor)
+                    
+                    all_outputs.append(out[:, 0].detach().cpu())
+                
+                if all_outputs:
+                    concat_outputs = torch.cat(all_outputs, dim=0)
+                    values[i][coalition] = concat_outputs.mean().item()
+                else:
+                    values[i][coalition] = 0.0
+                    
         return values
 
     @staticmethod
@@ -152,11 +181,11 @@ class NShapleyValueCalculator:
         self,
         n: int, 
         model: DenseNetClassifier,
-        coalition_images: dict,
+        coalition_images: dict[int, dict[tuple[FeatureType, ...], list[Image.Image]]],
         features: List[FeatureType],
         device: torch.device,
         pred_prob: bool = False,
-    ) -> dict:
+    ) -> dict[int, dict[tuple[FeatureType, ...], float]]:
         N = sorted(features)
         num_features = len(N)
     
@@ -167,10 +196,11 @@ class NShapleyValueCalculator:
             pred_prob=pred_prob,
         )
 
-        interaction_values = {}
+        interaction_values: dict[int, dict[tuple[FeatureType, ...], float]] = defaultdict(dict)
+        
         for interaction in itertools.combinations(N, n):
             interaction_set = set(interaction)
-            interaction_value = 0.0
+            interaction_value = [0.0] * len(coalition_images)
 
             for r in range(num_features - n + 1):
                 for context in itertools.combinations(
@@ -183,21 +213,25 @@ class NShapleyValueCalculator:
                         * math.factorial(num_features - context_size - n)
                         / math.factorial(num_features - n + 1)
                     )
-                    delta = self._discrete_derivative(
-                        values=v,
-                        context=tuple(sorted(context)),
-                        interaction=interaction,
-                    )
-                    interaction_value += weight * delta
 
-            interaction_values[interaction] = interaction_value
+                    for i in range(1, len(coalition_images) + 1):
+                        delta = self._discrete_derivative(
+                            values=v[i],
+                            context=tuple(sorted(context)),
+                            interaction=interaction,
+                        )
+                        interaction_value[i-1] += weight * delta
+
+            for i in range(1, len(coalition_images) + 1):
+                interaction_values[i][interaction] = interaction_value[i-1]
+
         return interaction_values
     
 
 if __name__ == "__main__":
     face_keypoint_detector = None
-    TARGET_INDEX = 9
-    REF_INDICES = list(range(10, 50))
+    TARGET_INDEX = 11
+    REF_INDICES = list(range(10, 51))
     n = 1
     try:
         dataset = CelebADataset(split="test")
@@ -225,65 +259,67 @@ if __name__ == "__main__":
         )
 
         model = get_classifier().to(device)
-        shapely_values = shap_calculator.compute_n_shapley_values(
+        shapely_values_batch = shap_calculator.compute_n_shapley_values(
             n=n,
             model=model,
             coalition_images=coalition_images,
             features=features,
             device=device,
-            pred_prob=True,
-        )
-        print(f"{n}-Shapley interaction values:", shapely_values)
-
-        values_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_values")
-        plots_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_plots")
-        features_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_features")
-
-        os.makedirs(values_dir, exist_ok=True)
-        os.makedirs(plots_dir, exist_ok=True)
-        os.makedirs(features_dir, exist_ok=True)
-
-        value_file = os.path.join(
-            values_dir,
-            f"target_{TARGET_INDEX}_{n}_shapley_values.json",
-        )
-        plot_file = os.path.join(
-            plots_dir,
-            f"target_{TARGET_INDEX}_{n}_shapley_values.png",
-        )
-        features_file = os.path.join(
-            features_dir,
-            f"target_{TARGET_INDEX}_{n}_shapley_features.json",
+            pred_prob=False,
         )
 
-        with open(value_file, "w", encoding="utf-8") as handle:
-            json.dump(
-                {_shapley_key_to_str(key): value for key, value in shapely_values.items()},
-                handle,
-                indent=2,
-                ensure_ascii=False,
+        for i, shapely_values in shapely_values_batch.items():
+            print(f"{n}-Shapley interaction values for prefix {i}:", shapely_values)
+
+            values_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_values")
+            plots_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_plots" )
+            features_dir = os.path.join(PROJECT_ROOT, "results", str(TARGET_INDEX), CLASSIFIER_LABEL, "shapley_features")
+
+            os.makedirs(values_dir, exist_ok=True)
+            os.makedirs(plots_dir, exist_ok=True)
+            os.makedirs(features_dir, exist_ok=True)
+
+            value_file = os.path.join(
+                values_dir,
+                f"target_{TARGET_INDEX}_{n}_shapley_values_{i:02d}.json",
+            )
+            plot_file = os.path.join(
+                plots_dir,
+                f"target_{TARGET_INDEX}_{n}_shapley_values_{i:02d}.png",
+            )
+            features_file = os.path.join(
+                features_dir,
+                f"target_{TARGET_INDEX}_{n}_shapley_features_{i:02d}.json",
             )
 
-        with open(features_file, "w", encoding="utf-8") as handle:
-            json.dump(
-                {_shapley_key_to_str(key): _shapley_key_to_str(key) for key in shapely_values.keys()},
-                handle,
-                indent=2,
-                ensure_ascii=False,
-            )
+            with open(value_file, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {shapley_key_to_str(key): value for key, value in shapely_values.items()},
+                    handle,
+                    indent=2,
+                    ensure_ascii=False,
+                )
 
-        show_shapley_values(
-            shapely_values,
-            save_path=plot_file,
-            title=f"{n}-Shapley Interaction Values for Facial Features",
-        )
-        print(f"Saved {n}-Shapley values to {value_file}")
-        print(f"Saved {n}-Shapley plot to {plot_file}")
+            with open(features_file, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {shapley_key_to_str(key): shapley_key_to_str(key) for key in shapely_values.keys()},
+                    handle,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            show_shapley_values(
+                shapely_values,
+                save_path=plot_file,
+                title=f"{n}-Shapley Interaction Values for Facial Features",
+            )
+            print(f"Saved {n}-Shapley values to {value_file}")
+            print(f"Saved {n}-Shapley plot to {plot_file}")
 
     finally:
         if face_keypoint_detector is not None:
             try:
-                face_keypoint_detector.close()
+                face_keypoint_detector.close() # ty: ignore
             except Exception:
                 pass
             finally:

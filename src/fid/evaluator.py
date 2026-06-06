@@ -10,7 +10,7 @@ from loguru import logger
 from PIL import Image
 
 from src.constants import I2SB_IMAGE_SIZE
-from src.data_loading import CelebADataset
+from src.data import CelebADataset
 
 
 class FIDEvaluator:
