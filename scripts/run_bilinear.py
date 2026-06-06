@@ -11,6 +11,9 @@ from src.inpainter.guidance.classifier import get_classifier
 from src.substitution import MediapipeFaceKeypointDetector
 from src.utils import load_config, parse_args, log_config_params
 from src.constants import TRACKING_URI
+from src.inpainter.guidance import CLIPGuidance
+from src.inpainter.i2sb import I2SB
+from src.interface.clip import load_clip
 
 FEATURE_MAP = {
     "eyes": CompositeFeature.eyes,

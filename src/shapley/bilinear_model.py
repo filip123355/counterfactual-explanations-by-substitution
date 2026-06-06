@@ -9,6 +9,9 @@ from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
 from src.substitution import Substitution, FaceKeypointDetector, MediapipeFaceKeypointDetector
 from .calculator import NShapleyValueCalculator
+from src.inpainter.i2sb import I2SB, SampleType
+from src.inpainter.guidance import CLIPGuidance
+from src.interface.clip import load_clip
 
 class BilinearModel:
     first_order_coefficients: np.ndarray
@@ -174,17 +177,13 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
     face_keypoint_detector = MediapipeFaceKeypointDetector()
     model = get_classifier().to(device)
-<<<<<<< HEAD:src/bilinear_model.py
-    features = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
     guidance = CLIPGuidance(load_clip(device=device))
     target_hq_idx = dataset.data.iloc[TARGET_INDEX]["idx"]
     target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
     guidance.set_target(target_img=Image.open(target_image_path).convert("RGB"))
     inpainter = I2SB(device=device, guidance=guidance)
-=======
     features: list[FeatureType | str] = [CompositeFeature.eyes, Feature.nose, CompositeFeature.mouth]
 
->>>>>>> fa8f9ccf342137294c63f60bdc665a734b5b779c:src/shapley/bilinear_model.py
     bilinear_model = BilinearModel(
         features=features,
         target_idx=9,
