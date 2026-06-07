@@ -32,6 +32,7 @@ dependencies = [
     "clean-fid>=0.1.35",
     "clip",
     "mlflow>=3.13.0",
+    "lpips>=0.1.4",
 ]
 
 [dependency-groups]

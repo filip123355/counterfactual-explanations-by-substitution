@@ -49,12 +49,13 @@ def show_substitution(
     axes[1].set_title("Destination Image")
     axes[2].imshow(substituted_image)
     axes[2].set_title("Substituted Image")
-    plt.tight_layout()
+    fig.tight_layout()
 
     if save_path is None:
         plt.show()
     else:
-        plt.savefig(save_path)
+        fig.savefig(save_path)
+        plt.close(fig)
 
 
 def show_inpanting(
@@ -78,7 +79,8 @@ def show_inpanting(
     if save_path is None:
         plt.show()
     else:
-        plt.savefig(save_path)
+        fig.savefig(save_path)
+        plt.close(fig)
 
 
 def show_top_k_similar(

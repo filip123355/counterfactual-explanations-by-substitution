@@ -33,7 +33,7 @@ from src.inpainter.diffusion import Diffusion
 from src.inpainter.guidance import ClassifierGuidance, CLIPGuidance, Guidance
 from src.inpainter.network import Image256Net
 from src.inpainter.transforms import I2SB_TO_PIL, PIL_TO_I2SB
-from src.substitution import Substitution, MediapipeFaceKeypointDetector
+from src.substitution import ImageSubstitution, MediapipeFaceKeypointDetector
 from src.visualize import show_inpanting
 
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
 
     face_keypoint_detector = MediapipeFaceKeypointDetector()
-    substitution = Substitution(dataset, face_keypoint_detector)
+    substitution = ImageSubstitution(dataset, face_keypoint_detector)
 
     subst_image = substitution.substitute(src_idx, dest_idx, feature)
 
