@@ -174,7 +174,7 @@ class NShapleyValueCalculator:
                         else:
                             out = model(images_tensor)
 
-                    all_outputs.append(out[:, 0].detach().cpu())
+                    all_outputs.extend(out[:, 0].detach().cpu().numpy().tolist())
 
                 values[i][coalition] = all_outputs
 
