@@ -95,12 +95,10 @@ def show_top_k_similar(
     plt.tight_layout()
     plt.show()
 
-
-def show_shapley_values(
+def render_shapley_values(
     shapley_values: Mapping[tuple[FeatureType, ...], float],
-    save_path: str | None = None,
     title: str = "Shapley Values",
-):
+) -> tuple[plt.Figure, plt.Axes]:
     items = sorted(shapley_values.items(), key=lambda item: item[1], reverse=True)
     labels = [str(key.value if hasattr(key, "value") else key) for key, _ in items]
     values = [value for _, value in items]
@@ -113,12 +111,21 @@ def show_shapley_values(
     ax.set_ylabel("Contribution")
     ax.set_xlabel("Feature")
     ax.tick_params(axis="x", rotation=30)
-    plt.tight_layout()
+    fig.tight_layout()
+
+    return fig, ax
+
+def show_shapley_values(
+    shapley_values: Mapping[tuple[FeatureType, ...], float],
+    save_path: str | None = None,
+    title: str = "Shapley Values",
+):
+    fig, _ = render_shapley_values(shapley_values, title)
 
     if save_path is None:
-        plt.show()
+        fig.show()
     else:
-        plt.savefig(save_path, bbox_inches="tight")
+        fig.savefig(save_path, bbox_inches="tight")
 
 
 if __name__ == "__main__":

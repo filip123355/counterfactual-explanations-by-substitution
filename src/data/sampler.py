@@ -2,6 +2,7 @@ from pathlib import Path
 from src.constants import CLASSIFIER_LABEL
 from src.data import CelebADataset
 
+from loguru import logger
 
 class StratifiedSampler:
     def __init__(self, dataset: CelebADataset):
@@ -23,6 +24,7 @@ class StratifiedSampler:
         n_pos = int(n_samples * ratio)
         n_neg = n_samples - n_pos
 
+        logger.info(f"Sampling {n_pos} positive and {n_neg} negative samples for label '{label}'.")
 
         sampled_pos = pos_samples.sample(n=n_pos, replace=False)
         sampled_neg = neg_samples.sample(n=n_neg, replace=False)
@@ -35,7 +37,7 @@ class StratifiedSampler:
 if __name__ == "__main__":
     dataset = CelebADataset()
     sampler = StratifiedSampler(dataset)
-    samples = sampler.sample(20, ratio=0.9)
+    samples = sampler.sample(20, ratio=0.0)
 
     save_dir = Path("results/sampler")
     save_dir.mkdir(exist_ok=True)
@@ -43,5 +45,6 @@ if __name__ == "__main__":
         file.unlink()
     
     for idx in samples:
-        img = dataset.get(idx)["full_image"]
-        img.save(f"results/sampler/{idx}.jpg")
+        img = dataset.get(idx)
+        print(idx, img["hq_idx"])
+        img["full_image"].save(f"results/sampler/{idx}.jpg")

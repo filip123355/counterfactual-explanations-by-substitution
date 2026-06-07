@@ -9,13 +9,13 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 from src.constants import TRACKING_URI
-from src.data import CelebADataset, CompositeFeature, Feature
+from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.i2sb import I2SB
 from src.inpainter.guidance import CLIPGuidance, get_classifier
 from src.interface import load_clip
 from src.shapley import NShapleyValueCalculator, shapley_key_to_str
 from src.substitution import Substitution, MediapipeFaceKeypointDetector
-from src.visualize import show_shapley_values
+from src.visualize import render_shapley_values
 from src.utils import log_config_params, parse_args, load_config
 
 FEATURE_MAP = {
@@ -63,6 +63,60 @@ def calculate_shapley_difference(prev: dict, current: dict) -> float:
         max_diff = max(max_diff, diff)
     return max_diff
 
+def log_shapley_values(shapley_values: dict[tuple[FeatureType, ...], float], *, config: dict, i: int):
+    for key, value in shapley_values.items():
+        mlflow.log_metric(
+            "_".join(shapley_key_to_str(key)[1:-1].split(", ")),
+            float(value),
+            step=int(i),
+        )
+
+    logger.info(f"{config['N']}-Shapley interaction values for prefix {i}: {shapley_values}")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        value_file = os.path.join(
+            tmpdir,
+            f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values_{i:03d}.json"
+        )
+
+        features_file = os.path.join(
+            tmpdir,
+            f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_features_{i:03d}.json"
+        )
+
+        plot_file = f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values_{i:03d}.png"
+
+        save_shapley_values_json(
+            shapely_values=shapley_values,
+            output_path=value_file,
+        )
+
+        save_shapley_features_json(
+            shapely_values=shapley_values,
+            output_path=features_file,
+        )
+
+        fig, _ = render_shapley_values(
+            shapley_values,
+            title=f"{config['N']}-Shapley Interaction Values for Facial Features",
+        )
+
+        mlflow.log_artifact(
+            value_file,
+            artifact_path="shapley/values",
+        )
+
+        mlflow.log_artifact(
+            features_file,
+            artifact_path="shapley/features",
+        )
+
+        mlflow.log_figure(
+            fig,
+            artifact_file=f"shapley/plots/{plot_file}",
+        )
+        plt.close(fig)
+
 def main():
     args = parse_args()
     config = load_config(args.config)
@@ -86,6 +140,8 @@ def main():
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             mlflow.log_param("device", str(device))
 
+            target = dataset.get(config["TARGET_INDEX"])
+
             ref_indices = list(
                 range(
                     config["REF_INDICES_RANGE"][0],
@@ -93,17 +149,15 @@ def main():
                 )
             ) if "REF_INDICES_RANGE" in config else sampler.sample(
                 n_samples=config["N_SAMPLES"],
-                ratio=config["SAMPLE_RATIO"],
                 label=config["CLASSIFIER_LABEL"].capitalize(),
+                ratio=1.0 if target["label_value"] == 0 else 0.0,
             )
 
+            logger.info(f"Selected reference indices: {ref_indices}")
+
             guidance = CLIPGuidance(load_clip(device=device))
-
-            target_hq_idx = dataset.data.iloc[config["TARGET_INDEX"]]["idx"]
-            target_image_path = os.path.join(dataset.img_dir, f"{target_hq_idx}.jpg")
-
             guidance.set_target(
-                target_img=Image.open(target_image_path).convert("RGB")
+                target_img=target["full_image"]
             )
 
             inpainter = I2SB(
@@ -145,61 +199,7 @@ def main():
 
             for i in prefixes:
                 shapely_values = shapely_values_batch[i]
-                for key, value in shapely_values.items():
-                    mlflow.log_metric(
-                        "_".join(shapley_key_to_str(key)[1:-1].split(", "))+f"_{i}",
-                        float(value),
-                    ) 
-
-                print(f"{config['N']}-Shapley interaction values for prefix {i}:", shapely_values)
-
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    value_file = os.path.join(
-                        tmpdir,
-                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values.json",
-                    )
-
-                    features_file = os.path.join(
-                        tmpdir,
-                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_features.json",
-                    )
-
-                    plot_file = os.path.join(
-                        tmpdir,
-                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_values.png",
-                    )
-
-                    save_shapley_values_json(
-                        shapely_values=shapely_values,
-                        output_path=value_file,
-                    )
-
-                    save_shapley_features_json(
-                        shapely_values=shapely_values,
-                        output_path=features_file,
-                    )
-
-                    show_shapley_values(
-                        shapely_values,
-                        save_path=plot_file,
-                        title=f"{config['N']}-Shapley Interaction Values for Facial Features",
-                    )
-
-                    mlflow.log_artifact(
-                        value_file,
-                        artifact_path=f"shapley/values/{i}",
-                    )
-
-                    mlflow.log_artifact(
-                        features_file,
-                        artifact_path=f"shapley/features/{i}",
-                    )
-
-                    mlflow.log_artifact(
-                        plot_file,
-                        artifact_path=f"shapley/plots/{i}",
-                    )
-
+                log_shapley_values(shapely_values, config=config, i=i)
                 
                 if prev_shapley_values is not None:
                     diff = calculate_shapley_difference(prev_shapley_values, shapely_values)
@@ -212,25 +212,23 @@ def main():
             logger.info(f"Logged {config['N']}-Shapley plot to MLflow")
 
             if config["KEEP_INTERMEDIATE_VALUES"]:
-                plt.figure(figsize=(10, 6))
+                fig, ax = plt.subplots(figsize=(10, 6))
                 x, y = zip(*differences)
-                plt.plot(x, y, marker='o')
-                plt.title(f"Difference in {config['N']}-Shapley Values Between Prefixes")
-                plt.xlabel("Prefix")
-                plt.ylabel("Difference in Shapley Values")
-                plt.xticks(rotation=45)
-                plt.tight_layout()
+                ax.plot(x, y, marker="o")
+                ax.set_title(f"Difference in {config['N']}-Shapley Values Between Prefixes")
+                ax.set_xlabel("Prefix")
+                ax.set_ylabel("Difference in Shapley Values")
+                fig.tight_layout()
 
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    diff_plot_file = os.path.join(
-                        tmpdir,
-                        f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_difference.png",
-                    )
-                    plt.savefig(diff_plot_file)
+                diff_plot_file = f"target_{config['TARGET_INDEX']}_{config['N']}_shapley_difference.png"
+                mlflow.log_figure(fig, artifact_file=f"shapley/plots/{diff_plot_file}")
+                plt.close(fig)
 
-                    mlflow.log_artifact(
-                        diff_plot_file,
-                        artifact_path="shapley/differences",
+                for i, diff in differences:
+                    mlflow.log_metric(
+                        "max_abs_shapley_difference",
+                        diff,
+                        step=int(i),
                     )
 
         finally:
