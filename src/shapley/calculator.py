@@ -151,8 +151,8 @@ class NShapleyValueCalculator:
         device: torch.device,
         pred_prob: bool = False,
         batch_size: int = 16,
-    ) -> dict[int, dict[tuple[FeatureType, ...], list[float]]]:
-        values: dict[int, dict[tuple[FeatureType, ...], list[float]]] = defaultdict(
+    ) -> dict[int, dict[tuple[FeatureType, ...], list[torch.Tensor]]]:
+        values: dict[int, dict[tuple[FeatureType, ...], list[torch.Tensor]]] = defaultdict(
             dict
         )
 
@@ -220,7 +220,7 @@ class NShapleyValueCalculator:
 
         v_mean: dict[int, dict[tuple[FeatureType, ...], float]] = {
             i: {
-                coalition: np.mean(outputs).item() if outputs else 0.0
+                coalition: torch.cat([out.flatten() for out in outputs]).mean().item() if outputs else 0.0
                 for coalition, outputs in coalition_dict.items()
             }
             for i, coalition_dict in v.items()
