@@ -176,7 +176,7 @@ class NShapleyValueCalculator:
 
                     all_outputs.extend(out[:, 0].detach().cpu().numpy().tolist())
 
-                values[i][coalition] = all_outputs
+                values[i][coalition] = all_outputs[:]
 
         return values
 
