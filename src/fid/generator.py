@@ -10,7 +10,7 @@ from src.constants import I2SB_IMAGE_SIZE, I2SB_MASK_INFLATION
 from src.data import CelebADataset, CompositeFeature, Feature
 from src.inpainter.guidance import ClassifierGuidance
 from src.inpainter.i2sb import I2SB, SampleType
-from src.substitution import Substitution, MediapipeFaceKeypointDetector
+from src.substitution import Substitution, MediapipeFaceKeypointDetector, ColorFillSubstitution
 
 
 class FIDGenerator:
@@ -135,16 +135,17 @@ if __name__ == "__main__":
 
     dataset = CelebADataset(split="test")
     face_keypoint_detector = MediapipeFaceKeypointDetector()
-    substitution = Substitution(dataset, face_keypoint_detector)
+    # substitution = ImageSubstitution(dataset, face_keypoint_detector)
+    substitution = ColorFillSubstitution(dataset)
 
     guidance = ClassifierGuidance(device=device, tau=tau)
-    inpainter = I2SB(device=device, guidance=guidance)
+    inpainter = None #I2SB(device=device, guidance=guidance)
 
     guidance_str = guidance.__class__.__name__ if guidance else "no_guidance"
     inpainter_str = inpainter.__class__.__name__ if inpainter else "no_inpainter"
 
     real_images_path = dataset.img_dir
-    generated_images_path = f"generated/fid_samples_{inpainter_str}_{guidance_str}"
+    generated_images_path = f"generated/fid_samples_color_fill_{inpainter_str}_{guidance_str}"
 
     generator = FIDGenerator(
         dataset=dataset,

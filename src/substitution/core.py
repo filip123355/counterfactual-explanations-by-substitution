@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +12,10 @@ from src.data import (
     FeatureType,
     get_base_features,
 )
-from src.substitution.keypoints import FaceKeypointDetector, MediapipeFaceKeypointDetector
+from src.substitution.keypoints import (
+    FaceKeypointDetector,
+    MediapipeFaceKeypointDetector,
+)
 from src.utils import assert_not_none
 from src.visualize import show_substitution
 
@@ -20,7 +24,79 @@ FEATURE_INFLATION: dict[FeatureType, int] = {
 }
 
 
-class Substitution:
+class Substitution(ABC):
+    def __init__(self, dataset: CelebADataset):
+        self.dataset = dataset
+
+    @abstractmethod
+    def substitute(
+        self,
+        dest_idx: int,
+        feature: FeatureType,
+        image: Image.Image | None = None,
+        skip_missing: bool = True,
+        **kwargs,
+    ) -> Image.Image:
+        pass
+
+
+class ColorFillSubstitution(Substitution):
+    color: tuple[int, int, int]
+
+    def __init__(self, dataset: CelebADataset, color: tuple[int, int, int] = (0, 0, 0)):
+        super().__init__(dataset)
+        self.color = color
+
+    def substitute(
+        self,
+        dest_idx: int,
+        feature: FeatureType,
+        image: Image.Image | None = None,
+        skip_missing: bool = True,
+        **kwargs,
+    ) -> Image.Image:
+        feature_parts = get_base_features(feature)
+        substituted_image = image
+
+        is_composite = isinstance(feature, CompositeFeature)
+
+        for feature_part in feature_parts:
+            inflation = FEATURE_INFLATION.get(
+                feature_part, FEATURE_INFLATION.get(feature, 0)
+            )
+
+            dest_item = self.dataset.get(dest_idx, feature=feature_part, padding=0, inflate_mask=inflation)
+
+            dest_mask = dest_item["mask"]
+            if dest_mask is None:
+                if is_composite or skip_missing:
+                    logger.warning(
+                        f"Skipping feature part {feature_part} due to missing mask."
+                    )
+                    continue
+
+                raise ValueError("Destination item does not have a mask.")
+
+            dest_image = (
+                dest_item["full_image"]
+                if substituted_image is None
+                else substituted_image
+            )
+
+            color_layer = np.zeros_like(dest_image)
+            color_layer[:, :] = self.color
+
+            alpha = (dest_mask.astype(np.float32) / 255.0)[:, :, np.newaxis]
+            blended_np = (color_layer * alpha) + (dest_image * (1.0 - alpha))
+            blended_np = np.clip(blended_np, 0, 255).astype(np.uint8)
+
+            substituted_image = Image.fromarray(blended_np)
+
+        assert substituted_image is not None
+        return substituted_image
+
+
+class ImageSubstitution(Substitution):
     dataset: CelebADataset
     face_keypoint_detector: FaceKeypointDetector
     tps_padding: int
@@ -32,11 +108,11 @@ class Substitution:
         *,
         tps_padding: int = 20,
     ):
-        self.dataset = dataset
+        super().__init__(dataset)
         self.face_keypoint_detector = face_keypoint_detector
         self.tps_padding = tps_padding
 
-    def substitute(
+    def substitute(  # ty: ignore
         self,
         src_idx: int,
         dest_idx: int,
@@ -44,6 +120,7 @@ class Substitution:
         image: Image.Image | None = None,
         plot_points: bool = False,
         skip_missing: bool = True,
+        **kwargs,
     ) -> Image.Image:
         feature_parts = get_base_features(feature)
         substituted_image = image
@@ -247,7 +324,8 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
 
     face_keypoint_detector = MediapipeFaceKeypointDetector()
-    substitution = Substitution(dataset, face_keypoint_detector)
+    # substitution = ImageSubstitution(dataset, face_keypoint_detector)
+    substitution = ColorFillSubstitution(dataset, color=(0, 0, 0))
 
     for src_idx in range(10):
         for dest_idx in range(10, 20):
@@ -256,9 +334,10 @@ if __name__ == "__main__":
             src_img = dataset.get(src_idx, feature=feature)["full_image"]
             dest_img = dataset.get(dest_idx, feature=feature)["full_image"]
 
-            result_image = substitution.substitute(
-                src_idx, dest_idx, feature, plot_points=False
-            )
+            # result_image = substitution.substitute(
+            #     src_idx, dest_idx, feature, plot_points=False
+            # )
+            result_image = substitution.substitute(dest_idx, feature)
             show_substitution(
                 src_img,
                 dest_img,

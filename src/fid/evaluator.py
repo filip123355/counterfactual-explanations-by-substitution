@@ -96,7 +96,7 @@ if __name__ == "__main__":
     dataset = CelebADataset(split="test")
 
     real_images_path = dataset.img_dir
-    generated_images_path = "generated/fid_samples_no_guidance"
+    generated_images_path = "generated/fid_samples_color_fill_no_inpainter_no_guidance"
 
     evaluator = FIDEvaluator(real_path=real_images_path, gen_path=generated_images_path)
 

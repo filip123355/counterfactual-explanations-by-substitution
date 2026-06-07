@@ -15,6 +15,7 @@ class StratifiedSampler:
         *,
         label: str = CLASSIFIER_LABEL.capitalize(),
         ratio: float = 0.5, # proportion of positive samples in the output
+        seed: int = 42,
     ) -> list[int]:
         assert label in self.dataset.data.columns, f"Label '{label}' not found in dataset attributes."
 
@@ -26,8 +27,8 @@ class StratifiedSampler:
 
         logger.info(f"Sampling {n_pos} positive and {n_neg} negative samples for label '{label}'.")
 
-        sampled_pos = pos_samples.sample(n=n_pos, replace=False)
-        sampled_neg = neg_samples.sample(n=n_neg, replace=False)
+        sampled_pos = pos_samples.sample(n=n_pos, replace=False, random_state=seed)
+        sampled_neg = neg_samples.sample(n=n_neg, replace=False, random_state=seed)
 
         pos_ilocs = self.dataset.data.index.get_indexer(sampled_pos.index).tolist()
         neg_ilocs = self.dataset.data.index.get_indexer(sampled_neg.index).tolist()
@@ -35,9 +36,11 @@ class StratifiedSampler:
         return pos_ilocs + neg_ilocs
 
 if __name__ == "__main__":
-    dataset = CelebADataset()
+    dataset = CelebADataset(split="test")
     sampler = StratifiedSampler(dataset)
-    samples = sampler.sample(20, ratio=0.0)
+    samples = sampler.sample(10, ratio=0.0)
+
+    logger.info(f"Sampled indices: {samples}")
 
     save_dir = Path("results/sampler")
     save_dir.mkdir(exist_ok=True)
@@ -46,5 +49,4 @@ if __name__ == "__main__":
     
     for idx in samples:
         img = dataset.get(idx)
-        print(idx, img["hq_idx"])
         img["full_image"].save(f"results/sampler/{idx}.jpg")

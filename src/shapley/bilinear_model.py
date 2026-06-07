@@ -7,7 +7,7 @@ from PIL import Image
 
 from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
-from src.substitution import Substitution, FaceKeypointDetector, MediapipeFaceKeypointDetector
+from src.substitution import ImageSubstitution, FaceKeypointDetector, MediapipeFaceKeypointDetector
 from .calculator import NShapleyValueCalculator
 from src.inpainter.i2sb import I2SB, SampleType
 from src.inpainter.guidance import CLIPGuidance
@@ -91,7 +91,7 @@ class BilinearModel:
         target_item = Image.open(target_image_path).convert("RGB")
         
         assert self.face_keypoint_detector is not None
-        substitution = Substitution(self.dataset, self.face_keypoint_detector)
+        substitution = ImageSubstitution(self.dataset, self.face_keypoint_detector)
 
         inpainted_ref_images = []
         for ref_idx in ref_indices:
