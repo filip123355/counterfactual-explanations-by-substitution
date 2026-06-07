@@ -346,7 +346,7 @@ def main():
                 log_max_abs_shapley_difference(differences, config)
 
             target_pred = preds_batch[len(coalition_images)][tuple(sorted(features))]
-            assert len(target_pred) == 1
+            assert all(pred == target_pred[0] for pred in target_pred)
             target_pred = target_pred[0]
 
             lpips_values = calc_lpips_values(
