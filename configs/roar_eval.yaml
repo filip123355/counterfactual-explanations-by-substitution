@@ -6,13 +6,14 @@ FEATURES:
   - eyes
   - nose
   - mouth
-SUBSTITUTION: "color_fill"
+SUBSTITUTION: "substitution"
 COLOR_FILL: [0, 0, 0]
 TAU: 0.5
 NFE: 20
 BATCH_SIZE: 16
+CLIP_BATCH_SIZE: 16
 INPUT_IMAGE_SIZE: 128
 SEED: 42
 LOG_IMAGES: 8
 MLFLOW_EXPERIMENT_NAME: "roar_eval"
-MLFLOW_RUN_NAME: "male_color_fill_roar_eval"
+MLFLOW_RUN_NAME: "male_substitution_roar_eval"

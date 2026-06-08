@@ -16,7 +16,13 @@ from src.constants import TRACKING_URI
 from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.data.sampler import StratifiedSampler
 from src.inpainter.guidance.classifier import get_classifier
-from src.substitution import ColorFillSubstitution
+from src.interface import load_clip
+from src.substitution import (
+    ColorFillSubstitution,
+    ImageSubstitution,
+    MediapipeFaceKeypointDetector,
+    Substitution,
+)
 from src.utils import load_config, log_config_params, parse_args
 
 
@@ -48,33 +54,46 @@ def image_to_tensor(image: Image.Image, image_size: int) -> torch.Tensor:
 
 
 def apply_prefix_substitution(
-    *,
     dataset: CelebADataset,
-    substitution: ColorFillSubstitution,
-    image_idx: int,
+    substitution: Substitution,
+    dest_idx: int,
     features: list[FeatureType],
+    src_idx: int | None = None,
 ) -> Image.Image:
-    image = dataset.get(image_idx)["full_image"]
+    image = dataset.get(dest_idx)["full_image"]
     for feature in features:
-        image = substitution.substitute(
-            dest_idx=image_idx,
-            feature=feature,
-            image=image,
-            skip_missing=True,
-        )
+        if isinstance(substitution, ColorFillSubstitution):
+            image = substitution.substitute(
+                dest_idx=dest_idx,
+                feature=feature,
+                image=image,
+                skip_missing=True,
+            )
+        else:
+            if src_idx is None:
+                raise ValueError("src_idx is required for ImageSubstitution.")
+            image = substitution.substitute(
+                dest_idx=dest_idx,
+                feature=feature,
+                image=image,
+                src_idx=src_idx,
+                skip_missing=True,
+            )
+
     return image
 
 
 def evaluate_prefix(
     *,
     dataset: CelebADataset,
-    substitution: ColorFillSubstitution,
+    substitution: Substitution,
     model: torch.nn.Module,
     device: torch.device,
     sample_indices: list[int],
     features: list[FeatureType],
     batch_size: int,
     image_size: int,
+    source_indices: dict[int, int] | None = None,
 ) -> dict[str, float]:
     y_true: list[int] = []
     y_pred: list[int] = []
@@ -84,12 +103,14 @@ def evaluate_prefix(
     with torch.no_grad():
         for start in range(0, len(sample_indices), batch_size):
             batch_indices = sample_indices[start : start + batch_size]
+
             images = [
                 apply_prefix_substitution(
                     dataset=dataset,
                     substitution=substitution,
-                    image_idx=idx,
+                    dest_idx=idx,
                     features=features,
+                    src_idx=source_indices[idx] if source_indices is not None else None,
                 )
                 for idx in batch_indices
             ]
@@ -165,13 +186,80 @@ def log_results(results: list[dict[str, object]]) -> None:
         plt.close(fig)
 
 
+def compute_clip_source_indices(
+    *,
+    dataset: CelebADataset,
+    sample_indices: list[int],
+    device: torch.device,
+    batch_size: int,
+) -> tuple[dict[int, int], dict[int, float]]:
+    labels = {idx: int(dataset.get(idx)["label_value"]) for idx in sample_indices}
+    if len(set(labels.values())) < 2:
+        raise ValueError("ImageSubstitution pairing requires samples from both classes.")
+
+    clip = load_clip(device=device)
+    images = [dataset.get(idx)["full_image"] for idx in sample_indices]
+
+    embeddings = []
+    for start in range(0, len(images), batch_size):
+        batch_images = images[start : start + batch_size]
+        batch_embeddings = clip.compute_image_embeddings(batch_images, normalize=True)
+        embeddings.append(batch_embeddings.float().cpu())
+
+    embedding_tensor = torch.cat(embeddings, dim=0)
+    similarities = embedding_tensor @ embedding_tensor.T
+
+    source_indices: dict[int, int] = {}
+    source_scores: dict[int, float] = {}
+    for dest_pos, dest_idx in enumerate(sample_indices):
+        candidate_positions = [
+            pos
+            for pos, candidate_idx in enumerate(sample_indices)
+            if labels[candidate_idx] != labels[dest_idx]
+        ]
+        best_pos = max(
+            candidate_positions,
+            key=lambda pos: float(similarities[dest_pos, pos].item()),
+        )
+        source_indices[dest_idx] = sample_indices[best_pos]
+        source_scores[dest_idx] = float(similarities[dest_pos, best_pos].item())
+
+    return source_indices, source_scores
+
+
+def log_source_indices(
+    *,
+    source_indices: dict[int, int],
+    source_scores: dict[int, float],
+    dataset: CelebADataset,
+) -> None:
+    rows = []
+    for dest_idx, src_idx in source_indices.items():
+        rows.append(
+            {
+                "dest_idx": dest_idx,
+                "dest_label": int(dataset.get(dest_idx)["label_value"]),
+                "src_idx": src_idx,
+                "src_label": int(dataset.get(src_idx)["label_value"]),
+                "clip_similarity": source_scores[dest_idx],
+            }
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        json_path = f"{tmpdir}/clip_source_indices.json"
+        with open(json_path, "w", encoding="utf-8") as handle:
+            json.dump(rows, handle, indent=2, ensure_ascii=False)
+        mlflow.log_artifact(json_path, artifact_path="roar_eval")
+
+
 def log_example_images(
     *,
     dataset: CelebADataset,
-    substitution: ColorFillSubstitution,
+    substitution: Substitution,
     sample_indices: list[int],
     ordered_features: list[FeatureType],
     max_images: int,
+    source_indices: dict[int, int] | None = None,
 ) -> None:
     example_indices = select_balanced_example_indices(
         dataset=dataset,
@@ -184,8 +272,9 @@ def log_example_images(
             image = apply_prefix_substitution(
                 dataset=dataset,
                 substitution=substitution,
-                image_idx=image_idx,
+                dest_idx=image_idx,
                 features=features,
+                src_idx=source_indices[image_idx] if source_indices is not None else None,
             )
             feature_suffix = (
                 "none" if not features else "_".join(str(feature.value) for feature in features)
@@ -232,8 +321,11 @@ def main() -> None:
             f"constants={DEFAULT_CLASSIFIER_LABEL.lower()!r}."
         )
 
-    if config["SUBSTITUTION"] != "color_fill":
-        raise ValueError("run_roar_eval currently supports only SUBSTITUTION: color_fill.")
+    substitution_name = config["SUBSTITUTION"]
+    if substitution_name != "color_fill" and substitution_name != "substitution":
+        raise ValueError(
+            "run_roar_eval supports SUBSTITUTION: color_fill or substitution."
+        )
 
     mlflow.set_tracking_uri(TRACKING_URI)
     mlflow.set_experiment(config["MLFLOW_EXPERIMENT_NAME"])
@@ -264,39 +356,65 @@ def main() -> None:
 
         model = get_classifier().to(device)
         ordered_features = parse_features(config["FEATURES"])
-        color = tuple(int(value) for value in config.get("COLOR_FILL", [0, 0, 0]))
-        substitution = ColorFillSubstitution(dataset, color=color)  # type: ignore[arg-type]
+        source_indices = None
+        source_scores = None
+        face_keypoint_detector = None
 
-        results: list[dict[str, object]] = []
-        for n_removed in range(len(ordered_features) + 1):
-            prefix_features = ordered_features[:n_removed]
-            metrics = evaluate_prefix(
+        if substitution_name == "color_fill":
+            color = tuple(int(value) for value in config.get("COLOR_FILL", [0, 0, 0]))
+            substitution: Substitution = ColorFillSubstitution(dataset, color=color)  # type: ignore[arg-type]
+        else:
+            source_indices, source_scores = compute_clip_source_indices(
+                dataset=dataset,
+                sample_indices=sample_indices,
+                device=device,
+                batch_size=config.get("CLIP_BATCH_SIZE", config.get("BATCH_SIZE", 8)),
+            )
+            log_source_indices(
+                source_indices=source_indices,
+                source_scores=source_scores,
+                dataset=dataset,
+            )
+            mlflow.log_param("source_indices", json.dumps(source_indices))
+            face_keypoint_detector = MediapipeFaceKeypointDetector()
+            substitution = ImageSubstitution(dataset, face_keypoint_detector)
+
+        try:
+            results: list[dict[str, object]] = []
+            for n_removed in range(len(ordered_features) + 1):
+                prefix_features = ordered_features[:n_removed]
+                metrics = evaluate_prefix(
+                    dataset=dataset,
+                    substitution=substitution,
+                    model=model,
+                    device=device,
+                    sample_indices=sample_indices,
+                    features=prefix_features,
+                    batch_size=config.get("BATCH_SIZE", 8),
+                    image_size=config.get("INPUT_IMAGE_SIZE", I2SB_IMAGE_SIZE),
+                    source_indices=source_indices,
+                )
+                logger.info(f"Prefix {n_removed}, features={prefix_features}, metrics={metrics}")
+                results.append(
+                    {
+                        "n_removed_features": n_removed,
+                        "removed_features": [feature.value for feature in prefix_features],
+                        "metrics": metrics,
+                    }
+                )
+
+            log_results(results)
+            log_example_images(
                 dataset=dataset,
                 substitution=substitution,
-                model=model,
-                device=device,
                 sample_indices=sample_indices,
-                features=prefix_features,
-                batch_size=config.get("BATCH_SIZE", 8),
-                image_size=config.get("INPUT_IMAGE_SIZE", I2SB_IMAGE_SIZE),
+                ordered_features=ordered_features,
+                max_images=config.get("LOG_IMAGES", 0),
+                source_indices=source_indices,
             )
-            logger.info(f"Prefix {n_removed}, features={prefix_features}, metrics={metrics}")
-            results.append(
-                {
-                    "n_removed_features": n_removed,
-                    "removed_features": [feature.value for feature in prefix_features],
-                    "metrics": metrics,
-                }
-            )
-
-        log_results(results)
-        log_example_images(
-            dataset=dataset,
-            substitution=substitution,
-            sample_indices=sample_indices,
-            ordered_features=ordered_features,
-            max_images=config.get("LOG_IMAGES", 0),
-        )
+        finally:
+            if face_keypoint_detector is not None and hasattr(face_keypoint_detector, "close"):
+                face_keypoint_detector.close()
 
 
 if __name__ == "__main__":
