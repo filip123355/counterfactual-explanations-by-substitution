@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 import matplotlib.pyplot as plt
 import mlflow
+import numpy as np
 import torch
 from loguru import logger
 from PIL import Image
@@ -15,7 +16,9 @@ from src.constants import I2SB_IMAGE_SIZE
 from src.constants import TRACKING_URI
 from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.data.sampler import StratifiedSampler
+from src.inpainter.guidance import CLIPGuidance
 from src.inpainter.guidance.classifier import get_classifier
+from src.inpainter.i2sb import I2SB, SampleType
 from src.interface import load_clip
 from src.substitution import (
     ColorFillSubstitution,
@@ -32,6 +35,8 @@ FEATURE_MAP = {
     "mouth": CompositeFeature.mouth,
     "hair": Feature.hair,
 }
+
+IMAGE_SUBSTITUTION_NAMES = {"substitution", "i2sb"}
 
 
 def parse_features(feature_names: Iterable[str]) -> list[FeatureType]:
@@ -59,8 +64,12 @@ def apply_prefix_substitution(
     dest_idx: int,
     features: list[FeatureType],
     src_idx: int | None = None,
+    inpainter: I2SB | None = None,
+    tau: float = 1.0,
+    nfe: int = 100,
 ) -> Image.Image:
     image = dataset.get(dest_idx)["full_image"]
+    masks = []
     for feature in features:
         if isinstance(substitution, ColorFillSubstitution):
             image = substitution.substitute(
@@ -79,8 +88,30 @@ def apply_prefix_substitution(
                 src_idx=src_idx,
                 skip_missing=True,
             )
+        if inpainter is not None:
+            mask_item = dataset.get(dest_idx, feature=feature, inflate_mask=10)
+            if mask_item["mask"] is not None:
+                masks.append(mask_item["mask"])
+
+    if inpainter is not None and masks:
+        if inpainter.guidance is not None:
+            inpainter.guidance.set_target(target_img=dataset.get(dest_idx)["full_image"])
+        image = inpainter.inpaint(
+            image=image,
+            mask=combine_masks(masks),
+            tau=tau,
+            sampler_type=SampleType.DDPM,
+            nfe=nfe,
+        )
 
     return image
+
+
+def combine_masks(masks: list[np.ndarray]) -> np.ndarray:
+    combined = masks[0].copy()
+    for mask in masks[1:]:
+        combined = np.logical_or(combined, mask).astype(np.uint8) * 255
+    return combined
 
 
 def evaluate_prefix(
@@ -94,6 +125,9 @@ def evaluate_prefix(
     batch_size: int,
     image_size: int,
     source_indices: dict[int, int] | None = None,
+    inpainter: I2SB | None = None,
+    tau: float = 1.0,
+    nfe: int = 100,
 ) -> dict[str, float]:
     y_true: list[int] = []
     y_pred: list[int] = []
@@ -111,6 +145,9 @@ def evaluate_prefix(
                     dest_idx=idx,
                     features=features,
                     src_idx=source_indices[idx] if source_indices is not None else None,
+                    inpainter=inpainter,
+                    tau=tau,
+                    nfe=nfe,
                 )
                 for idx in batch_indices
             ]
@@ -190,14 +227,13 @@ def compute_clip_source_indices(
     *,
     dataset: CelebADataset,
     sample_indices: list[int],
-    device: torch.device,
+    clip,
     batch_size: int,
 ) -> tuple[dict[int, int], dict[int, float]]:
     labels = {idx: int(dataset.get(idx)["label_value"]) for idx in sample_indices}
     if len(set(labels.values())) < 2:
         raise ValueError("ImageSubstitution pairing requires samples from both classes.")
 
-    clip = load_clip(device=device)
     images = [dataset.get(idx)["full_image"] for idx in sample_indices]
 
     embeddings = []
@@ -260,6 +296,9 @@ def log_example_images(
     ordered_features: list[FeatureType],
     max_images: int,
     source_indices: dict[int, int] | None = None,
+    inpainter: I2SB | None = None,
+    tau: float = 1.0,
+    nfe: int = 100,
 ) -> None:
     example_indices = select_balanced_example_indices(
         dataset=dataset,
@@ -275,6 +314,9 @@ def log_example_images(
                 dest_idx=image_idx,
                 features=features,
                 src_idx=source_indices[image_idx] if source_indices is not None else None,
+                inpainter=inpainter,
+                tau=tau,
+                nfe=nfe,
             )
             feature_suffix = (
                 "none" if not features else "_".join(str(feature.value) for feature in features)
@@ -322,9 +364,9 @@ def main() -> None:
         )
 
     substitution_name = config["SUBSTITUTION"]
-    if substitution_name != "color_fill" and substitution_name != "substitution":
+    if substitution_name != "color_fill" and substitution_name not in IMAGE_SUBSTITUTION_NAMES:
         raise ValueError(
-            "run_roar_eval supports SUBSTITUTION: color_fill or substitution."
+            "run_roar_eval supports SUBSTITUTION: color_fill, substitution or i2sb."
         )
 
     mlflow.set_tracking_uri(TRACKING_URI)
@@ -359,15 +401,17 @@ def main() -> None:
         source_indices = None
         source_scores = None
         face_keypoint_detector = None
+        inpainter = None
 
         if substitution_name == "color_fill":
             color = tuple(int(value) for value in config.get("COLOR_FILL", [0, 0, 0]))
             substitution: Substitution = ColorFillSubstitution(dataset, color=color)  # type: ignore[arg-type]
         else:
+            clip = load_clip(device=device)
             source_indices, source_scores = compute_clip_source_indices(
                 dataset=dataset,
                 sample_indices=sample_indices,
-                device=device,
+                clip=clip,
                 batch_size=config.get("CLIP_BATCH_SIZE", config.get("BATCH_SIZE", 8)),
             )
             log_source_indices(
@@ -378,6 +422,9 @@ def main() -> None:
             mlflow.log_param("source_indices", json.dumps(source_indices))
             face_keypoint_detector = MediapipeFaceKeypointDetector()
             substitution = ImageSubstitution(dataset, face_keypoint_detector)
+            if substitution_name == "i2sb":
+                guidance = CLIPGuidance(clip)
+                inpainter = I2SB(device=device, guidance=guidance)
 
         try:
             results: list[dict[str, object]] = []
@@ -393,6 +440,9 @@ def main() -> None:
                     batch_size=config.get("BATCH_SIZE", 8),
                     image_size=config.get("INPUT_IMAGE_SIZE", I2SB_IMAGE_SIZE),
                     source_indices=source_indices,
+                    inpainter=inpainter,
+                    tau=config.get("TAU", 1.0),
+                    nfe=config.get("NFE", 100),
                 )
                 logger.info(f"Prefix {n_removed}, features={prefix_features}, metrics={metrics}")
                 results.append(
@@ -411,6 +461,9 @@ def main() -> None:
                 ordered_features=ordered_features,
                 max_images=config.get("LOG_IMAGES", 0),
                 source_indices=source_indices,
+                inpainter=inpainter,
+                tau=config.get("TAU", 1.0),
+                nfe=config.get("NFE", 100),
             )
         finally:
             if face_keypoint_detector is not None and hasattr(face_keypoint_detector, "close"):
