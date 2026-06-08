@@ -92,7 +92,7 @@ def plot_ranking_change(
                 label=metric,
                 marker='o',
             )
-            ax[i].set_title(f"Ranking of {metric} (NFE={nfe})")
+            ax[i].set_title(f"(NFE={nfe})")
             ax[i].set_xlabel("Step")
     
     plt.legend()
