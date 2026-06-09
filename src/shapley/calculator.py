@@ -20,7 +20,7 @@ from src.substitution import (
 from src.inpainter.guidance import CLIPGuidance
 from src.interface import load_clip
 from src.visualize import show_shapley_values
-from src.constants import PROJECT_ROOT, CLASSIFIER_LABEL
+from src.constants import PROJECT_ROOT, CLASSIFIER_LABEL, I2SB_IMAGE_SIZE
 
 from loguru import logger
 
@@ -123,13 +123,13 @@ class NShapleyValueCalculator:
                             nfe=nfe,
                         )
                     else:
-                        inpainted_img = current_img
+                        inpainted_img = current_img.resize((I2SB_IMAGE_SIZE, I2SB_IMAGE_SIZE))
                     inpainted_for_S.append(inpainted_img)
                 else:
                     logger.warning(
                         f"No valid masks found for features {not_in_S} at index {target_idx}. Using original image."
                     )
-                    inpainted_for_S.append(current_img)
+                    inpainted_for_S.append(current_img.resize((I2SB_IMAGE_SIZE, I2SB_IMAGE_SIZE)))
 
                 if keep_intermediate:
                     coalition_images[i + 1][tuple(sorted(S))] = inpainted_for_S[:]
