@@ -33,6 +33,7 @@ dependencies = [
     "clip",
     "mlflow>=3.13.0",
     "lpips>=0.1.4",
+    "seaborn>=0.13.2",
 ]
 
 [dependency-groups]
