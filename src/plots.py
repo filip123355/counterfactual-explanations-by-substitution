@@ -172,6 +172,37 @@ def plot_ranking_convergence_for_runs(
     plt.show()
 
 
+def plot_roar(
+    max_top_k: int,
+    metric_name: str,
+    experiment_name: str = "retrain",
+    run_name: str = "i2sb_tau_0.5_topk_X",
+) -> None:
+     
+    metrics = {}
+    for top_k in range(1, max_top_k + 1):
+        run_name = run_name.replace("X", str(top_k))
+        runs = get_run_by_name(run_name, experiment_name=experiment_name, return_multiple=True)
+        test_metrics = []
+        for run in runs:
+            last_test_metric = [
+                m.value for m in client.get_metric_history(run.info.run_id, metric_name)
+            ][-1]
+            test_metrics.append(last_test_metric)
+        metrics[top_k] = test_metrics
+    plt.figure(figsize=(14, 7))
+    sns.boxplot(
+        data=pd.DataFrame(metrics),
+        palette="viridis",
+    )
+    plt.title("ROAR Performance")
+    plt.xlabel("Top-k")
+    plt.ylabel(f"Mean Test {metric_name.capitalize()}")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     INDS = [2471, 1586, 1275, 2646, 2712, 280, 664, 1777, 580, 503]
     NFE = [20, 50, 100]
@@ -205,11 +236,18 @@ if __name__ == "__main__":
     #     experiment_name="shapley",
     # )
 
-    plot_ranking_convergence_for_runs(
-        run_names=[
-            list(zip(run_group, INDS)) for run_group in RUN_NAMES
-        ],
-        labels=LABELS,
-        metrics=["eyes", "nose", "mouth"],
-        experiment_name="shapley",
+    # plot_ranking_convergence_for_runs(
+    #     run_names=[
+    #         list(zip(run_group, INDS)) for run_group in RUN_NAMES
+    #     ],
+    #     labels=LABELS,
+    #     metrics=["eyes", "nose", "mouth"],
+    #     experiment_name="shapley",
+    # )
+
+    plot_roar(
+        max_top_k=3,
+        metric_name="test_accuracy",
+        experiment_name="retrain",
+        run_name="i2sb_tau_0.5_topk_X",
     )

@@ -33,6 +33,7 @@ def get_or_create_run(
 def get_run_by_name(
         run_name: str,
         experiment_name: str,
+        return_multiple: bool = False,
 ) -> Run:
     runs = client.search_runs(
         experiment_ids=[client.get_experiment_by_name(experiment_name).experiment_id], # ty: ignore
@@ -43,13 +44,15 @@ def get_run_by_name(
     if not runs:
         raise ValueError(f"No run found with name: {run_name}")
 
-    if len(runs) > 1:
+    if len(runs) > 1 and return_multiple:
         timesteps = [
             datetime.fromtimestamp(run.info.start_time / 1000.0).strftime('%Y-%m-%d %H:%M:%S') 
             for run in runs
         ]
         logger.warning(f"Multiple runs found with name: {run_name} at timesteps: {timesteps}. Returning the most recent one.")
 
+        return runs
+    
     return runs[0]
 
 
