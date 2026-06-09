@@ -2,7 +2,7 @@
 
 set -e
 
-for nfe in 20 50 100; do
+for nfe in 10; do
     for idx in 2471 1586 1275 2646 2712 280 664 1777 580 503; do
         tmp=$(mktemp /tmp/shapley_XXXX.yaml)
         sed "s/^TARGET_INDEX: .*/TARGET_INDEX: ${idx}/" configs/shapley.yaml > "$tmp"

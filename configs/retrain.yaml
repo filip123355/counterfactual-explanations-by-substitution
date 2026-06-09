@@ -1,0 +1,14 @@
+DATASET_SPLIT: "test"
+MLFLOW_EXPERIMENT_NAME: "shapley"
+MLFLOW_RUN_NAMES:
+  - "target_1275_male_N1_tau_0.5_nfe_20"
+  - "target_2712_male_N1_tau_0.5_nfe_20"
+TEST_SIZE: 0.2
+NUM_EPOCHS: 20
+LR: 0.001
+BATCH_SIZE: 32
+SEED: 42
+MODEL_SAVE_PATH: "models/retrained"
+
+TRAINING_EXPERIMENT_NAME: "retrain"
+TRAINING_RUN_NAME: "male_i2sb"
