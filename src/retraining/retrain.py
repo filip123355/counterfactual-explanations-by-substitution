@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 import mlflow
 from mlflow.entities import Run
-from PIL import Image as PILImage
 from PIL.Image import Image
 from torch.utils.data import DataLoader, TensorDataset
 from torchvision import transforms
@@ -18,10 +17,11 @@ from tqdm import tqdm
 from pydantic import BaseModel
 
 from src.constants import BATCH_SIZE, I2SB_IMAGE_SIZE, TRACKING_URI
-from src.data.loader import CelebADataset
+from src.data.loader import CelebADataset, CompositeFeature, Feature
 from src.inpainter.guidance.classifier import get_classifier
 from src.mlflow import get_runs_by_names, client
 from src.utils import log_config_params, parse_args, load_config
+from src.substitution import ColorFillSubstitution
 
 
 def _prepare_image(image: Image) -> torch.Tensor:
@@ -34,16 +34,6 @@ def _prepare_image(image: Image) -> torch.Tensor:
     return transform(image)
 
 
-def _parse_sample_index(path: Path, coalition_label: str) -> int:
-    pattern = re.compile(rf"^coalition_{re.escape(coalition_label)}_(\d+)\.png$")
-    match = pattern.match(path.name)
-    if match is None:
-        raise ValueError(
-            f"Artifact {path.name} does not match coalition naming for {coalition_label}."
-        )
-    return int(match.group(1))
-
-
 def _get_target_index(run: Run) -> int:
     raw_target_index = run.data.params.get("TARGET_INDEX")
     if raw_target_index is None:
@@ -53,28 +43,12 @@ def _get_target_index(run: Run) -> int:
     return int(raw_target_index)
 
 
-def _get_artifact_dir(run: Run, artifact_path: str) -> Path:
-    artifact_root = Path(run.info.artifact_uri)
-    local_artifact_dir = artifact_root / artifact_path
-    if local_artifact_dir.exists():
-        return local_artifact_dir
-    return Path(client.download_artifacts(run.info.run_id, artifact_path))
-
-
-def _parse_coalition_features(coalition_label: str) -> tuple[str, ...]:
-    if coalition_label == "()":
-        return ()
-
-    inner = coalition_label.strip()[1:-1].strip()
-    if not inner:
-        return ()
-
-    return tuple(part.strip() for part in inner.split(","))
-
-
-def _coalition_sort_key(coalition_label: str) -> tuple[int, tuple[str, ...]]:
-    features = _parse_coalition_features(coalition_label)
-    return len(features), features
+def _parse_feature(feature_name: str) -> Feature | CompositeFeature:
+    if feature_name in CompositeFeature._value2member_map_:
+        return CompositeFeature(feature_name)
+    if feature_name in Feature._value2member_map_:
+        return Feature(feature_name)
+    raise ValueError(f"Invalid feature type: {feature_name}")
 
 
 class RetrainResult(BaseModel):
@@ -114,52 +88,48 @@ class Retrainer:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
         self.dataset = dataset
+        self.substitution = ColorFillSubstitution(dataset=dataset)
 
-    def load_coalition_images(
+    def get_coalition_images(
         self,
+        top_k: int, 
         run_names: list[str],
         experiment_name: str,
+        shapley_artifact_subdir: str,
     ) -> tuple[list[Image], list[int]]:
-        runs = get_runs_by_names(run_names, experiment_name=experiment_name)
-
+        runs = get_runs_by_names(run_names=run_names, experiment_name=experiment_name)
+        
         coalition_images: list[Image] = []
         labels: list[int] = []
-        artifact_path = "shapley/coalitions"
-
+        
         for run in runs:
-            target_index = _get_target_index(run)
-            label = int(self.dataset.get(target_index)["label_value"])
+            
+            target_image_idx = _get_target_index(run)
+            target_image = self.dataset.get(target_image_idx)["full_image"]
+            masked_image = target_image.copy()
 
-            local_coalitions_dir = _get_artifact_dir(run, artifact_path)
-            available_coalitions = sorted(
-                {
-                    path.stem.rsplit("_", 1)[0].removeprefix("coalition_")
-                    for path in local_coalitions_dir.glob("coalition_*.png")
-                },
-                key=_coalition_sort_key,
+            shapley_values_dir = mlflow.artifacts.download_artifacts(
+                run_id=run.info.run_id,
+                artifact_path=shapley_artifact_subdir.replace("XXXX", str(target_image_idx)),
+            )
+            with open(shapley_values_dir) as f:
+                shapley_values: dict[str, float] = json.load(f)
+
+            sorted_shapley_values = dict(
+                sorted(shapley_values.items(), key=lambda item: abs(item[1]), reverse=True)
             )
 
-            if not available_coalitions:
-                raise ValueError(
-                    f"Run {run.info.run_id} does not contain any coalition artifacts under {artifact_path}."
+            for feature, _ in list(sorted_shapley_values.items())[:top_k]:
+                feature_no_bra = feature[1:-1]
+                masked_image = self.substitution.substitute(
+                    dest_idx=target_image_idx,
+                    feature=_parse_feature(feature_no_bra),
+                    image=masked_image,
+                    skip_missing=True,
                 )
 
-            for coalition_label in available_coalitions:
-                matching_paths = sorted(
-                    local_coalitions_dir.glob(f"coalition_{coalition_label}_*.png"),
-                    key=lambda path: _parse_sample_index(path, coalition_label),
-                )
-
-                if not matching_paths:
-                    raise ValueError(
-                        f"Run {run.info.run_id} does not contain artifacts for coalition {coalition_label!r} "
-                        f"under {artifact_path}."
-                    )
-
-                for image_path in matching_paths:
-                    with PILImage.open(image_path) as image:
-                        coalition_images.append(image.convert("RGB").copy())
-                    labels.append(label)
+            coalition_images.append(masked_image)
+            labels.append(self.dataset.get(target_image_idx)["label_value"])
 
         return coalition_images, labels
 
@@ -207,6 +177,8 @@ class Retrainer:
         self,
         run_names: list[str],
         experiment_name: str,
+        top_k: int,
+        shapley_artifact_subdir: str,
         test_size: float = 0.2,
         num_epochs: int = 20,
         lr: float = 1e-3,
@@ -214,9 +186,11 @@ class Retrainer:
         seed: int = 42,
         model_save_path: str | None = None,
     ) -> RetrainResult:
-        coalition_images, labels = self.load_coalition_images(
+        coalition_images, labels = self.get_coalition_images(
             run_names=run_names,
             experiment_name=experiment_name,
+            shapley_artifact_subdir=shapley_artifact_subdir,
+            top_k=top_k,
         )
         if not coalition_images:
             raise ValueError("No coalition images were loaded from MLflow artifacts.")
@@ -308,27 +282,32 @@ class Retrainer:
         )
 
 
-def main() -> None:
+def main(indices: list[int]) -> None:
     args = parse_args()
     config = load_config(args.config)
 
     mlflow.set_tracking_uri(TRACKING_URI)
     mlflow.set_experiment(config["TRAINING_EXPERIMENT_NAME"])
 
-    run_name = config.get("TRAINING_RUN_NAME", "retraining")
+    run_name = config.get("TRAINING_RUN_NAME")
 
     with mlflow.start_run(run_name=run_name):
         log_config_params(config)
         mlflow.log_param("device", str(torch.device("cuda" if torch.cuda.is_available() else "cpu")))
-        mlflow.log_param("source_run_names", json.dumps(config["MLFLOW_RUN_NAMES"]))
 
         dataset = CelebADataset(split=config.get("DATASET_SPLIT", "test"))
         retrainer = Retrainer(
             model=get_classifier(),
             dataset=dataset,
         )
+
+        run_names = [
+            f"target_{idx}_male_N1_tau_0.5_nfe_10"
+            for idx in indices
+        ]
+
         result = retrainer.retrain(
-            run_names=config["MLFLOW_RUN_NAMES"],
+            run_names=run_names,
             experiment_name=config["MLFLOW_EXPERIMENT_NAME"],
             test_size=config.get("TEST_SIZE", 0.2),
             num_epochs=config.get("NUM_EPOCHS", 20),
@@ -336,6 +315,8 @@ def main() -> None:
             batch_size=config.get("BATCH_SIZE", BATCH_SIZE),
             seed=config.get("SEED", 42),
             model_save_path=config.get("MODEL_SAVE_PATH"),
+            top_k=config.get("TOP_K", 3),
+            shapley_artifact_subdir=config.get("SHAPLEY_ARTIFACT_SUBDIR"),
         )
 
         log_retraining_result(result)
@@ -349,4 +330,22 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+
+    # indices = [
+    #     2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 
+    #     1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 
+    #     2692, 622, 2217, 1258, 2189, 137, 988, 1622, 2781, 447, 
+    #     1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696, 
+    #     1718, 228, 2049, 2021, 779, 2768, 1127, 674, 2257, 2060, 
+    #     280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 
+    #     2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036, 
+    #     1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044, 
+    #     1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
+    #     134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
+    # ]
+
+    indices = [
+        2471, 1586, 1275, 2646, 2712,
+    ]
+
+    main(indices=indices)
