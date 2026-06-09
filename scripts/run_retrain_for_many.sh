@@ -7,7 +7,7 @@ for top_k in 1 2 3; do
         tmp=$(mktemp /tmp/retrain_XXXX.yaml)
         sed "s/^SEED: .*/SEED: ${seed}/" configs/retrain.yaml > "$tmp"
         sed -i "s/^TOP_K: .*/TOP_K: ${top_k}/" "$tmp"
-        python3 -m scripts.run_retrain --config "$tmp"
+        python3 -m src.retraining.retrain --config "$tmp"
         rm "$tmp"
     done
 done
