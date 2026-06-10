@@ -2,6 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import json
+
+from loguru import logger
 
 from src.mlflow import get_runs_by_names, client, get_run_by_name
 
@@ -113,6 +116,7 @@ def plot_ranking_change(
     plt.tight_layout()
     plt.show()
 
+
 def plot_ranking_convergence_for_runs(
     run_names: list[list[tuple[str, int]]],
     labels: list[str],
@@ -123,7 +127,7 @@ def plot_ranking_convergence_for_runs(
 
     for run_group, label in zip(run_names, labels):
         for run_name, target_idx in run_group:
-            run = get_run_by_name(run_name, experiment_name=experiment_name)
+            run = get_run_by_name(run_name, experiment_name=experiment_name)[0]
 
             history = {}
 
@@ -138,7 +142,7 @@ def plot_ranking_convergence_for_runs(
             is_different = (ranks != final_rank).any(axis=1)
 
             if not is_different.any():
-                converged_step = ranks.index[0]
+                converged_step = 1
             else:
                 last_diff_step = is_different[is_different].index[-1]
                 converged_step = last_diff_step + 1
@@ -172,52 +176,109 @@ def plot_ranking_convergence_for_runs(
     plt.show()
 
 
+def plot_lpips_scatter_for_runs(
+    run_names: list[list[str]],
+    labels: list[str],
+    experiment_name: str,
+) -> None:
+    plt.figure(figsize=(10, 8))
+
+    for run_group, label in zip(run_names, labels):
+        group_lpips = []
+        group_preds = []
+
+        for run_name in run_group:
+            run = get_run_by_name(run_name, experiment_name=experiment_name)[0]
+
+            artifacts = client.list_artifacts(run.info.run_id, "lpips")
+            json_artifact = next(
+                (a for a in artifacts if a.path.endswith(".json")), None
+            )
+
+            if json_artifact:
+                local_path = client.download_artifacts(
+                    run.info.run_id, json_artifact.path
+                )
+                with open(local_path, "r") as f:
+                    data = json.load(f)
+                    group_lpips.extend(data.get("lpips", []))
+                    group_preds.extend(data.get("preds", []))
+            else:
+                logger.warning(f"No LPIPS JSON artifact found for run '{run_name}'.")
+
+        plt.scatter(group_lpips, group_preds, label=label, alpha=0.5, s=20)
+
+    plt.title("LPIPS Distance vs. Prediction Difference")
+    plt.xlabel("LPIPS Distance to Target Image")
+    plt.ylabel("Prediction Difference")
+    plt.legend(title="Method")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_roar(
     max_top_k: int,
     metric_name: str,
     experiment_name: str = "retrain",
-    run_name: str = "i2sb_tau_0.5_topk_X",
+    run_names: list[str] = ["i2sb_tau_0.5_topk_X"],
     mode: str = "boxplot",
 ) -> None:
-    metrics = {}
-    run_name_template = run_name
+    data_rows = []
 
-    for top_k in range(1, max_top_k + 1):
-        current_run_name = run_name_template.replace("X", str(top_k))
-        runs = get_run_by_name(
-            current_run_name,
-            experiment_name=experiment_name,
-            return_multiple=True,
-        )
-        test_metrics = []
-        for run in runs:
-            last_test_metric = [
-                m.value for m in client.get_metric_history(run.info.run_id, metric_name)
-            ][-1]
-            test_metrics.append(last_test_metric)
-        metrics[top_k] = test_metrics
+    for run_name_template in run_names:
+        for top_k in range(1, max_top_k + 1):
+            current_run_name = run_name_template.replace("X", str(top_k))
+
+            runs = get_run_by_name(
+                current_run_name,
+                experiment_name=experiment_name,
+                return_multiple=True,
+            )
+
+            for run in runs:
+                last_test_metric = [
+                    m.value
+                    for m in client.get_metric_history(run.info.run_id, metric_name)
+                ][-1]
+
+                data_rows.append(
+                    {
+                        "Top-k": top_k,
+                        metric_name: last_test_metric,
+                        "run_name": run_name_template,
+                    }
+                )
+
+    df = pd.DataFrame(data_rows)
 
     plt.figure(figsize=(14, 7))
     if mode == "boxplot":
         sns.boxplot(
-            data=pd.DataFrame(metrics),
+            data=df,
+            x="Top-k",
+            y=metric_name,
+            hue="run_name",
             palette="viridis",
         )
     elif mode == "violin":
         sns.violinplot(
-            data=pd.DataFrame(metrics),
+            data=df,
+            x="Top-k",
+            y=metric_name,
+            hue="run_name",
             palette="viridis",
         )
     elif mode == "lineplot":
-        data = pd.DataFrame(metrics)
-        means_stds = data.agg(["mean", "std"])
-        plt.errorbar(
-            x=means_stds.columns,
-            y=means_stds.loc["mean"],
-            yerr=means_stds.loc["std"],
-            fmt='-o',
-            capsize=5,
-            color="blue",
+        sns.lineplot(
+            data=df,
+            x="Top-k",
+            y=metric_name,
+            hue="run_name",
+            palette="viridis",
+            marker="o",
+            err_style="bars",
+            errorbar="sd",
         )
     plt.title("ROAR Performance")
     plt.xlabel("Top-k")
@@ -239,10 +300,13 @@ if __name__ == "__main__":
     # )
 
     RUN_NAMES = [
-        # [f"target_{ind}_male_N1_tau_0.5_nfe_10" for ind in INDS],
         [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
         [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
         [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
+        [f"grid_search_fill_target_{ind}" for ind in INDS],
+        [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
+        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
+        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
     ]
     LABELS = ["I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
 
@@ -269,10 +333,39 @@ if __name__ == "__main__":
     #     experiment_name="shapley",
     # )
 
+    # plot_lpips_scatter_for_runs(
+    #     run_names=RUN_NAMES,
+    #     labels=LABELS,
+    #     experiment_name="shapley",
+    # )
+
+    RUN_NAMES = [
+        "i2sb_tau_1.0_topk_X_partial2",
+        "i2sb_tau_1.0_topk_X_partial2_reset",
+        "sub_topk_X_partial2",
+        "sub_topk_X_partial2_reset",
+    ]
+
     plot_roar(
         max_top_k=3,
         metric_name="test_accuracy",
         experiment_name="retrain",
-        run_name="i2sb_tau_0.5_topk_X",
+        run_names=RUN_NAMES,
+        mode="lineplot",
+    )
+
+    plot_roar(
+        max_top_k=3,
+        metric_name="test_mean_confidence",
+        experiment_name="retrain",
+        run_names=RUN_NAMES,
+        mode="lineplot",
+    )
+
+    plot_roar(
+        max_top_k=3,
+        metric_name="test_loss",
+        experiment_name="retrain",
+        run_names=RUN_NAMES,
         mode="lineplot",
     )

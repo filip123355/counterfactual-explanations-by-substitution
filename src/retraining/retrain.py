@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 import os
 import json
@@ -18,8 +17,8 @@ from pydantic import BaseModel
 
 from src.constants import BATCH_SIZE, I2SB_IMAGE_SIZE, TRACKING_URI
 from src.data.loader import CelebADataset, CompositeFeature, Feature
-from src.inpainter.guidance.classifier import get_classifier
-from src.mlflow import get_runs_by_names, client
+from src.inpainter.guidance.classifier import get_classifier, DenseNetClassifier
+from src.mlflow import get_runs_by_names
 from src.utils import log_config_params, parse_args, load_config
 from src.substitution import ColorFillSubstitution
 
@@ -55,19 +54,21 @@ class RetrainResult(BaseModel):
     train_loss: list[float]
     test_loss: list[float]
     test_accuracy: list[float]
+    test_mean_confidence: list[float]
     n_train: int
     n_test: int
     n_total: int
 
 
 def log_retraining_result(result: RetrainResult) -> None:
-    for epoch, (train_loss, test_loss, test_accuracy) in enumerate(
-        zip(result.train_loss, result.test_loss, result.test_accuracy),
+    for epoch, (train_loss, test_loss, test_accuracy, test_mean_confidence) in enumerate(
+        zip(result.train_loss, result.test_loss, result.test_accuracy, result.test_mean_confidence),
         start=1,
     ):
         mlflow.log_metric("train_loss", float(train_loss), step=epoch)
         mlflow.log_metric("test_loss", float(test_loss), step=epoch)
         mlflow.log_metric("test_accuracy", float(test_accuracy), step=epoch)
+        mlflow.log_metric("test_mean_confidence", float(test_mean_confidence), step=epoch)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         results_path = Path(tmpdir) / "retrain_results.json"
@@ -81,7 +82,7 @@ def log_retraining_result(result: RetrainResult) -> None:
 class Retrainer:
     def __init__(
         self,
-        model: nn.Module,
+        model: DenseNetClassifier,
         dataset: CelebADataset,
         device: torch.device | None = None,
     ):
@@ -145,15 +146,14 @@ class Retrainer:
         label_tensor = torch.tensor(labels, dtype=torch.float32)
 
         dataset = TensorDataset(image_tensors, label_tensor)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle) # ty: ignore
 
-    def _evaluate(
-        self, loader: DataLoader[tuple[torch.Tensor, torch.Tensor]]
-    ) -> tuple[float, float]:
+    def _evaluate(self, loader: DataLoader[tuple[torch.Tensor, torch.Tensor]]) -> tuple[float, float, float]:
         self.model.eval()
         total_loss = 0.0
         total_correct = 0
         total_count = 0
+        total_confidence = 0.0
         criterion = nn.BCEWithLogitsLoss()
 
         with torch.no_grad():
@@ -170,10 +170,12 @@ class Retrainer:
                 total_loss += float(loss.item()) * X.size(0)
                 total_correct += int((preds == y.long()).sum().item())
                 total_count += int(X.size(0))
+                total_confidence += float(probs.sum().item())
 
         mean_loss = total_loss / total_count if total_count else 0.0
         accuracy = total_correct / total_count if total_count else 0.0
-        return mean_loss, accuracy
+        mean_confidence = total_confidence / total_count if total_count else 0.0
+        return mean_loss, accuracy, mean_confidence
 
     def retrain(
         self,
@@ -227,12 +229,18 @@ class Retrainer:
         for param in self.model.classifier.parameters():
             param.requires_grad = True
 
+        # for module in self.model.classifier.modules():
+        #     if isinstance(module, nn.Linear):
+        #         print("Resetting parameters of classifier module:", module)
+        #         module.reset_parameters()
+
         optimizer = torch.optim.Adam(self.model.classifier.parameters(), lr=lr)
         criterion = nn.BCEWithLogitsLoss()
 
         train_loss_history: list[float] = []
         test_loss_history: list[float] = []
         test_accuracy_history: list[float] = []
+        test_mean_confidence_history: list[float] = []
 
         self.model.to(self.device)
 
@@ -257,17 +265,19 @@ class Retrainer:
                 running_count += int(X.size(0))
 
             train_loss = running_loss / running_count if running_count else 0.0
-            test_loss, test_accuracy = self._evaluate(test_loader)
+            test_loss, test_accuracy, test_mean_confidence = self._evaluate(test_loader)
 
             train_loss_history.append(train_loss)
             test_loss_history.append(test_loss)
             test_accuracy_history.append(test_accuracy)
+            test_mean_confidence_history.append(test_mean_confidence)
 
             tqdm.write(
                 f"Epoch {epoch + 1}/{num_epochs} "
                 f"train_loss={train_loss:.4f} "
                 f"test_loss={test_loss:.4f} "
-                f"test_accuracy={test_accuracy:.4f}"
+                f"test_accuracy={test_accuracy:.4f} "
+                f"test_mean_confidence={test_mean_confidence:.4f}"
             )
 
         if model_save_path is not None:
@@ -278,6 +288,7 @@ class Retrainer:
             train_loss=train_loss_history,
             test_loss=test_loss_history,
             test_accuracy=test_accuracy_history,
+            test_mean_confidence=test_mean_confidence_history,
             n_train=n_train,
             n_test=n_test,
             n_total=n_total,
@@ -304,7 +315,7 @@ def main(indices: list[int]) -> None:
         )
 
         run_names = [
-            f"target_{idx}_male_N1_tau_0.5_nfe_10"
+            f"dataset_sub_target_{idx}"
             for idx in indices
         ]
 
@@ -318,7 +329,7 @@ def main(indices: list[int]) -> None:
             seed=config.get("SEED", 42),
             model_save_path=config.get("MODEL_SAVE_PATH"),
             top_k=config.get("TOP_K", 3),
-            shapley_artifact_subdir=config.get("SHAPLEY_ARTIFACT_SUBDIR"),
+            shapley_artifact_subdir=str(config.get("SHAPLEY_ARTIFACT_SUBDIR")),
         )
 
         log_retraining_result(result)
@@ -340,10 +351,14 @@ if __name__ == "__main__":
         1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696, 
         1718, 228, 2049, 2021, 779, 2768, 1127, 674, 2257, 2060, 
         280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 
-        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036, 
-        1312, 227, 1136, 1466, 2290, 2812, 433,]# 1955, 2345, 2044,
-    #     1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
-    #     134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
+        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036,
+        # 1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044, 
+        # 1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
+        # 134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
+    ]
+
+    # indices = [
+    #     2471, 1586, 1275, 2646, 2712, 1050, 933, 1242,
     # ]
 
     main(indices=indices)
