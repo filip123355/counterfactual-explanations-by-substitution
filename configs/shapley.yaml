@@ -1,7 +1,7 @@
 TARGET_INDEX: 2471
 # REF_INDICES_RANGE: [10, 40]
 N_SAMPLES: 1
-N: 1
+N: 2
 CLASSIFIER_LABEL: "male"
 SUBSTITUTION: "blackfill"
 DATASET_SPLIT: "test"
@@ -13,5 +13,5 @@ TAU: 0.5
 NFE: 10
 PRED_PROB: false
 KEEP_INTERMEDIATE_VALUES: false
-MLFLOW_EXPERIMENT_NAME: "final_blackfill"
-MLFLOW_RUN_NAME: "target_2471_male_N1_blackfill"
+MLFLOW_EXPERIMENT_NAME: "final_blackfill_2"
+MLFLOW_RUN_NAME: "target_2471_male_N2_blackfill"
