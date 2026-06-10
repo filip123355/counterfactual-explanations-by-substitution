@@ -177,12 +177,18 @@ def plot_roar(
     metric_name: str,
     experiment_name: str = "retrain",
     run_name: str = "i2sb_tau_0.5_topk_X",
+    mode: str = "boxplot",
 ) -> None:
-     
     metrics = {}
+    run_name_template = run_name
+
     for top_k in range(1, max_top_k + 1):
-        run_name = run_name.replace("X", str(top_k))
-        runs = get_run_by_name(run_name, experiment_name=experiment_name, return_multiple=True)
+        current_run_name = run_name_template.replace("X", str(top_k))
+        runs = get_run_by_name(
+            current_run_name,
+            experiment_name=experiment_name,
+            return_multiple=True,
+        )
         test_metrics = []
         for run in runs:
             last_test_metric = [
@@ -190,11 +196,29 @@ def plot_roar(
             ][-1]
             test_metrics.append(last_test_metric)
         metrics[top_k] = test_metrics
+
     plt.figure(figsize=(14, 7))
-    sns.boxplot(
-        data=pd.DataFrame(metrics),
-        palette="viridis",
-    )
+    if mode == "boxplot":
+        sns.boxplot(
+            data=pd.DataFrame(metrics),
+            palette="viridis",
+        )
+    elif mode == "violin":
+        sns.violinplot(
+            data=pd.DataFrame(metrics),
+            palette="viridis",
+        )
+    elif mode == "lineplot":
+        data = pd.DataFrame(metrics)
+        means_stds = data.agg(["mean", "std"])
+        plt.errorbar(
+            x=means_stds.columns,
+            y=means_stds.loc["mean"],
+            yerr=means_stds.loc["std"],
+            fmt='-o',
+            capsize=5,
+            color="blue",
+        )
     plt.title("ROAR Performance")
     plt.xlabel("Top-k")
     plt.ylabel(f"Mean Test {metric_name.capitalize()}")
@@ -250,4 +274,5 @@ if __name__ == "__main__":
         metric_name="test_accuracy",
         experiment_name="retrain",
         run_name="i2sb_tau_0.5_topk_X",
+        mode="lineplot",
     )
