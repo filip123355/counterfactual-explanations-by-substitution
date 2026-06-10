@@ -135,7 +135,7 @@ class NShapleyValueCalculator:
                     coalition_images[i + 1][tuple(sorted(S))] = inpainted_for_S[:]
 
             if not keep_intermediate:
-                coalition_images[len(ref_indices)][tuple(sorted(S))] = inpainted_for_S
+                coalition_images[1][tuple(sorted(S))] = inpainted_for_S
 
         return coalition_images
 

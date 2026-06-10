@@ -184,12 +184,12 @@ if __name__ == "__main__":
     # )
 
     RUN_NAMES = [
-            [f"grid_search_fill_target_{ind}" for ind in INDS],
-            [f"grid_search_sub_target_{ind}" for ind in INDS],
-            [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
-            [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_10" for ind in INDS],
+        [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
+        [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
+        [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
     ]
-    LABELS = ["Black Fill", "Substitution", "I2SB (NFE=100)", "I2SB (NFE=20)"]
+    LABELS = ["I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
 
     # plot_mean_for_runs(
     #     RUN_NAMES,
