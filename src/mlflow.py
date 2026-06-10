@@ -33,7 +33,8 @@ def get_or_create_run(
 def get_run_by_name(
         run_name: str,
         experiment_name: str,
-) -> Run:
+        return_multiple: bool = False,
+) -> list[Run]:
     runs = client.search_runs(
         experiment_ids=[client.get_experiment_by_name(experiment_name).experiment_id], # ty: ignore
         filter_string=f"tags.mlflow.runName = '{run_name}'",
@@ -48,13 +49,16 @@ def get_run_by_name(
             datetime.fromtimestamp(run.info.start_time / 1000.0).strftime('%Y-%m-%d %H:%M:%S') 
             for run in runs
         ]
-        logger.warning(f"Multiple runs found with name: {run_name} at timesteps: {timesteps}. Returning the most recent one.")
+        logger.warning(f"Multiple runs found with name: {run_name} at timesteps: {timesteps}.")
 
-    return runs[0]
+        if return_multiple:
+            return runs
+    
+    return [runs[0]]
 
 
 def get_runs_by_names(
         run_names: list[str],
         experiment_name: str,
 ) -> list[Run]:
-    return [get_run_by_name(run_name, experiment_name) for run_name in run_names]
+    return [get_run_by_name(run_name, experiment_name)[0] for run_name in run_names]
