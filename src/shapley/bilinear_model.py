@@ -115,16 +115,19 @@ class BilinearModel:
         with open(second_values_path, "r", encoding="utf-8") as f:
             second_order_values = json.load(f)
 
-        self.first_order_coefficients = np.array(
-            list(first_order_values.values()),
-            dtype=float,
-        )
+        self.first_order_coefficients = np.zeros(len(self.features), dtype=float)
+        for i, feature in enumerate(self.features):
+            key = f"({str(feature)})"
+            self.first_order_coefficients[i] = first_order_values[key]
 
-        self.second_order_coefficients = np.array(
-            list(second_order_values.values()),
-            dtype=float,
-        )
-
+        rows, cols = np.triu_indices(len(self.features), k=1)
+        self.second_order_coefficients = np.zeros(len(rows), dtype=float)
+        
+        for idx, (r, c) in enumerate(zip(rows, cols)):
+            f1, f2 = str(self.features[r]), str(self.features[c])
+            key = f"({', '.join(sorted([f1, f2]))})"
+            self.second_order_coefficients[idx] = second_order_values[key]
+            
     def predict_bmodel(self, feature_values: np.ndarray) -> float:
 
         if not np.all(np.isin(feature_values, [0, 1])):
@@ -230,7 +233,7 @@ class BilinearModel:
 
 
 if __name__ == "__main__":
-    TARGET_INDEX = 530
+    TARGET_INDEX = 1586
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset = CelebADataset(split="test")
@@ -242,9 +245,10 @@ if __name__ == "__main__":
     bilinear_model = BilinearModel(
         features=features,
         target_idx=TARGET_INDEX,
-        first_order_experiment_name="final_tau_0.5_nfe_10",
-        second_order_experiment_name="final_tau_0.5_nfe_10",
+        first_order_experiment_name="shapley",
+        second_order_experiment_name="shapley",
         dataset=dataset,
+        run_name_temp="target_XXX_male_Nnnn_sub_fixed3"
     )
     r_squared = bilinear_model.calculate_r_squared(model=model, device=device)
     print(f"R-squared: {r_squared:.4f}")
