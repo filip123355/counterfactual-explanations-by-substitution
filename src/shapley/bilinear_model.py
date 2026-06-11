@@ -87,14 +87,14 @@ class BilinearModel:
                 .replace("XXX", str(self.target_idx))
                 .replace("nnn", "1"),
             experiment_name=first_order_experiment_name,
-        )
+        )[0]
 
         second_run = get_run_by_name(
             run_name=self.run_name_temp
                 .replace("XXX", str(self.target_idx))
                 .replace("nnn", "2"),
             experiment_name=second_order_experiment_name,
-        )
+        )[0]
 
         first_local_path = mlflow.artifacts.download_artifacts( 
             run_id=first_run.info.run_id,
@@ -167,7 +167,7 @@ class BilinearModel:
                 .replace("XXX", str(self.target_idx))
                 .replace("nnn", "1"),
             experiment_name=self.first_order_experiment_name,
-        )
+        )[0]
 
         local_path = mlflow.artifacts.download_artifacts(
             run_id=run.info.run_id,

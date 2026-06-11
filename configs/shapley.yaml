@@ -1,9 +1,9 @@
 TARGET_INDEX: 2471
 # REF_INDICES_RANGE: [10, 40]
-N_SAMPLES: 1
+N_SAMPLES: 20
 N: 2
 CLASSIFIER_LABEL: "male"
-SUBSTITUTION: "blackfill"
+SUBSTITUTION: "i2sb"
 DATASET_SPLIT: "test"
 FEATURES: 
   - eyes
@@ -13,5 +13,5 @@ TAU: 0.5
 NFE: 10
 PRED_PROB: false
 KEEP_INTERMEDIATE_VALUES: false
-MLFLOW_EXPERIMENT_NAME: "final_blackfill_2"
-MLFLOW_RUN_NAME: "target_2471_male_N2_blackfill"
+MLFLOW_EXPERIMENT_NAME: "final_tau_0.5_nfe_10_N2"
+MLFLOW_RUN_NAME: "target_2471_male_N2_tau_0.5_nfe_10"

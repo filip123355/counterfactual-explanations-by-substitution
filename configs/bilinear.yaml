@@ -1,4 +1,4 @@
-TARGET_INDEX: 1275
+TARGET_INDEX: 2471
 CLASSIFIER_LABEL: "male"
 DATASET_SPLIT: "test"
 FIRST_ORDER_EXPERIMENT_NAME: "final_blackfill"
@@ -10,5 +10,5 @@ FEATURES:
   - mouth
 INTERACTION_LEVEL: 2
 PRED_PROB: false
-MLFLOW_EXPERIMENT_NAME: "bilinear"
-MLFLOW_RUN_NAME: "final_blackfill"
+MLFLOW_EXPERIMENT_NAME: "bilinear_blackfill"
+MLFLOW_RUN_NAME: "final_2471_blackfill"

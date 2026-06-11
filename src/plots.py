@@ -220,13 +220,14 @@ def plot_lpips_scatter_for_runs(
 def plot_roar(
     max_top_k: int,
     metric_name: str,
-    experiment_name: str = "retrain",
+    experiment_names: list[str] = ["retrain"],
     run_names: list[str] = ["i2sb_tau_0.5_topk_X"],
     mode: str = "boxplot",
 ) -> None:
     data_rows = []
+    assert len(experiment_names) == len(run_names), "experiment_names and run_names must have the same length."
 
-    for run_name_template in run_names:
+    for experiment_name, run_name_template in zip(experiment_names, run_names):
         for top_k in range(1, max_top_k + 1):
             current_run_name = run_name_template.replace("X", str(top_k))
 
@@ -288,6 +289,72 @@ def plot_roar(
     plt.show()
 
 
+def plot_metric_for_experiment(
+    experiment_names: list[str] | str,
+    metric_name: str,
+    labels: list[str] | None = None,
+    mode: str = "boxplot",
+) -> None:
+    if isinstance(experiment_names, str):
+        experiment_names = [experiment_names]
+
+    if labels is None:
+        labels = experiment_names
+
+    if len(labels) != len(experiment_names):
+        raise ValueError("labels and experiment_names must have the same length.")
+
+    data_rows = []
+
+    for experiment_name, label in zip(experiment_names, labels):
+        experiment = client.get_experiment_by_name(experiment_name)
+        if experiment is None:
+            logger.error(f"Experiment '{experiment_name}' not found.")
+            continue
+
+        runs = client.search_runs(experiment_ids=[experiment.experiment_id])
+
+        values = []
+        for run in runs:
+            metric_history = client.get_metric_history(run.info.run_id, metric_name)
+            values.extend(metric.value for metric in metric_history)
+
+        if not values:
+            logger.warning(
+                f"No metric '{metric_name}' found in experiment '{experiment_name}'."
+            )
+            continue
+
+        data_rows.extend(
+            {
+                "Experiment": label,
+                metric_name: value,
+            }
+            for value in values
+        )
+
+    if not data_rows:
+        logger.warning(f"No values found for metric '{metric_name}'.")
+        return
+
+    df = pd.DataFrame(data_rows)
+    plt.figure(figsize=(max(6, 3 * len(labels)), 7))
+
+    if mode == "boxplot":
+        sns.boxplot(data=df, x="Experiment", y=metric_name)
+    elif mode == "violin":
+        sns.violinplot(data=df, x="Experiment", y=metric_name)
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    plt.title(f"{metric_name} across experiments")
+    plt.ylabel(metric_name)
+    plt.xlabel("Experiment")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     INDS = [2471, 1586, 1275, 2646, 2712, 280, 664, 1777, 580, 503]
     NFE = [20, 50, 100]
@@ -340,32 +407,48 @@ if __name__ == "__main__":
     # )
 
     RUN_NAMES = [
-        "i2sb_tau_1.0_topk_X_partial2",
-        "i2sb_tau_1.0_topk_X_partial2_reset",
-        "sub_topk_X_partial2",
-        "sub_topk_X_partial2_reset",
+        "blackfill_topk_X",
+        "i2sb_tau_0.5_topk_X",
     ]
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_accuracy",
-        experiment_name="retrain",
-        run_names=RUN_NAMES,
-        mode="lineplot",
-    )
+    EXPERIMENTS = [
+        "retrain_blackfill",
+        "retrain",
+    ]
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_mean_confidence",
-        experiment_name="retrain",
-        run_names=RUN_NAMES,
-        mode="lineplot",
-    )
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_accuracy",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     mode="lineplot",
+    # )
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_loss",
-        experiment_name="retrain",
-        run_names=RUN_NAMES,
-        mode="lineplot",
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_mean_confidence",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     mode="lineplot",
+    # )
+
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_loss",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     mode="lineplot",
+    # )
+
+    plot_metric_for_experiment(
+        experiment_names=[
+            "bilinear_i2sb_tau_0.5_nfe_10",
+            "bilinear_blackfill",
+        ],
+        labels=[
+            "I2SB",
+            "Blackfill",
+        ],
+        metric_name="r_squared",
+        mode="boxplot",
     )
