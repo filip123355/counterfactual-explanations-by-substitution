@@ -42,6 +42,8 @@ def plot_mean_for_runs(
     labels: list[str],
     metric_name: str,
     experiment_name: str,
+    title: str | None = None,
+    vline: float | None = None,
 ):
     for run_group, label in zip(run_names, labels):
         mean_values = get_mean_metric(
@@ -50,10 +52,13 @@ def plot_mean_for_runs(
             experiment_name=experiment_name,
             plot=False,
         )
-        plt.plot(mean_values, label=label)
-    plt.title(f"Mean {metric_name}")
+        sns.lineplot(x=range(len(mean_values)), y=mean_values, label=label)
+    plt.title(title if title else f"Mean {metric_name}")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.xlabel("Step")
     plt.ylabel(metric_name)
+    if vline is not None:
+        plt.axvline(x=vline, ymin=0, color="black", linestyle="--", alpha=0.7)
     plt.legend()
     plt.show()
 
@@ -63,6 +68,8 @@ def plot_mean_for_nfes(
     nfes: list[int],
     metric_name: str,
     experiment_name: str,
+    title: str | None = None,
+    vline: float | None = None,
 ) -> None:
     run_groups = []
     for nfe in nfes:
@@ -74,6 +81,8 @@ def plot_mean_for_nfes(
         labels=[f"NFE={nfe}" for nfe in nfes],
         metric_name=metric_name,
         experiment_name=experiment_name,
+        title=title,
+        vline=vline,
     )
 
 
@@ -122,6 +131,7 @@ def plot_ranking_convergence_for_runs(
     labels: list[str],
     metrics: list[str],
     experiment_name: str,
+    title: str | None = None,
 ) -> None:
     data = []
 
@@ -167,7 +177,10 @@ def plot_ranking_convergence_for_runs(
         edgecolor="black",
     )
 
-    plt.title("Feature Ranking Convergence")
+    if title:
+        plt.title(title)
+    else:
+        plt.title("Feature Ranking Convergence")
     plt.xlabel("Target Image Index")
     plt.ylabel("Convergence Step")
     plt.legend(title="Method")
@@ -356,17 +369,20 @@ def plot_metric_for_experiment(
 
 
 if __name__ == "__main__":
-    INDS = [2471, 1586, 1275, 2646, 2712, 280, 664, 1777, 580, 503]
-    NFE = [20, 50, 100]
+    INDS = [2471, 1586, 1275, 2646, 2712]#, 280, 664, 1777, 580, 503]
+    NFE = [10, 20, 50, 100]
 
     # plot_mean_for_nfes(
     #     inds=INDS,
     #     nfes=NFE,
     #     metric_name="max_abs_shapley_difference",
     #     experiment_name="shapley",
+    #     title="tau=0.5",
+    #     vline=20.0,
     # )
 
     RUN_NAMES = [
+        [f"target_{ind}_male_N1_tau_0.5_nfe_10" for ind in INDS],
         [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
         [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
         [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
@@ -375,7 +391,7 @@ if __name__ == "__main__":
         [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
         [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
     ]
-    LABELS = ["I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
+    LABELS = ["I2SB (NFE=10)", "I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
 
     # plot_mean_for_runs(
     #     RUN_NAMES,
@@ -391,14 +407,15 @@ if __name__ == "__main__":
     #     experiment_name="shapley",
     # )
 
-    # plot_ranking_convergence_for_runs(
-    #     run_names=[
-    #         list(zip(run_group, INDS)) for run_group in RUN_NAMES
-    #     ],
-    #     labels=LABELS,
-    #     metrics=["eyes", "nose", "mouth"],
-    #     experiment_name="shapley",
-    # )
+    plot_ranking_convergence_for_runs(
+        run_names=[
+            list(zip(run_group, INDS)) for run_group in RUN_NAMES
+        ],
+        labels=LABELS,
+        metrics=["eyes", "nose", "mouth"],
+        experiment_name="shapley",
+        title="tau=0.5",
+    )
 
     # plot_lpips_scatter_for_runs(
     #     run_names=RUN_NAMES,
@@ -440,15 +457,15 @@ if __name__ == "__main__":
     #     mode="lineplot",
     # )
 
-    plot_metric_for_experiment(
-        experiment_names=[
-            "bilinear_i2sb_tau_0.5_nfe_10",
-            "bilinear_blackfill",
-        ],
-        labels=[
-            "I2SB",
-            "Blackfill",
-        ],
-        metric_name="r_squared",
-        mode="boxplot",
-    )
+    # plot_metric_for_experiment(
+    #     experiment_names=[
+    #         "bilinear_i2sb_tau_0.5_nfe_10",
+    #         "bilinear_blackfill",
+    #     ],
+    #     labels=[
+    #         "I2SB",
+    #         "Blackfill",
+    #     ],
+    #     metric_name="r_squared",
+    #     mode="boxplot",
+    # )
