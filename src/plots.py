@@ -44,6 +44,8 @@ def plot_mean_for_runs(
     experiment_name: str,
     title: str | None = None,
     vline: float | None = None,
+    ylabel: str | None = None,
+    ylim: float | None = None,
 ):
     for run_group, label in zip(run_names, labels):
         mean_values = get_mean_metric(
@@ -55,10 +57,14 @@ def plot_mean_for_runs(
         sns.lineplot(x=range(len(mean_values)), y=mean_values, label=label)
     plt.title(title if title else f"Mean {metric_name}")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
-    plt.xlabel("Step")
-    plt.ylabel(metric_name)
+    plt.xlabel("Number of marginalization images")
+    plt.ylabel(ylabel or metric_name)
     if vline is not None:
         plt.axvline(x=vline, ymin=0, color="black", linestyle="--", alpha=0.7)
+
+    if ylim is not None:
+        plt.ylim(0, ylim)
+
     plt.legend()
     plt.show()
 
@@ -70,6 +76,8 @@ def plot_mean_for_nfes(
     experiment_name: str,
     title: str | None = None,
     vline: float | None = None,
+    ylabel: str | None = None,
+    ylim: float | None = None,   
 ) -> None:
     run_groups = []
     for nfe in nfes:
@@ -83,6 +91,8 @@ def plot_mean_for_nfes(
         experiment_name=experiment_name,
         title=title,
         vline=vline,
+        ylabel=ylabel,
+        ylim=ylim,
     )
 
 
@@ -369,7 +379,7 @@ def plot_metric_for_experiment(
 
 
 if __name__ == "__main__":
-    INDS = [2471, 1586, 1275, 2646, 2712]#, 280, 664, 1777, 580, 503]
+    INDS = [2471, 1586, 1275, 2646, 2712, 280, 664, 1777, 580, 503]
     NFE = [10, 20, 50, 100]
 
     # plot_mean_for_nfes(
@@ -377,27 +387,35 @@ if __name__ == "__main__":
     #     nfes=NFE,
     #     metric_name="max_abs_shapley_difference",
     #     experiment_name="shapley",
-    #     title="tau=0.5",
+    #     title="Substitution + I2SB (tau=0.5)",
     #     vline=20.0,
+    #     ylabel="Max Abs Shapley Difference",
+    #     ylim=0.35,
     # )
 
     RUN_NAMES = [
-        [f"target_{ind}_male_N1_tau_0.5_nfe_10" for ind in INDS],
-        [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
-        [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
-        [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
-        [f"grid_search_fill_target_{ind}" for ind in INDS],
-        [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
-        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_10" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
+        # [f"grid_search_fill_target_{ind}" for ind in INDS],
+        # [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
         [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
+        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
     ]
-    LABELS = ["I2SB (NFE=10)", "I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
+    # LABELS = ["I2SB (NFE=10)", "I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
+    LABELS = ["NFE=20", "NFE=100"]
+    # LABELS = ["Substitution"]
 
     # plot_mean_for_runs(
     #     RUN_NAMES,
     #     LABELS,
     #     metric_name="max_abs_shapley_difference",
     #     experiment_name="shapley",
+    #     title="I2SB (tau=1.0)",
+    #     vline=20.0,
+    #     ylabel="Max Abs Shapley Difference",
+    #     ylim=0.35,
     # )
 
     # plot_ranking_change(
@@ -414,7 +432,7 @@ if __name__ == "__main__":
     #     labels=LABELS,
     #     metrics=["eyes", "nose", "mouth"],
     #     experiment_name="shapley",
-    #     title="tau=0.5",
+    #     title="I2SB (tau=1.0)",
     # )
 
     # plot_lpips_scatter_for_runs(
@@ -423,23 +441,23 @@ if __name__ == "__main__":
     #     experiment_name="shapley",
     # )
 
-    RUN_NAMES = [
-        "blackfill_topk_X",
-        "i2sb_tau_0.5_topk_X",
-    ]
+    # RUN_NAMES = [
+    #     "blackfill_topk_X",
+    #     "i2sb_tau_0.5_topk_X",
+    # ]
 
-    EXPERIMENTS = [
-        "retrain_blackfill",
-        "retrain",
-    ]
+    # EXPERIMENTS = [
+    #     "retrain_blackfill",
+    #     "retrain",
+    # ]
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_accuracy",
-        experiment_names=EXPERIMENTS,
-        run_names=RUN_NAMES,
-        mode="lineplot",
-    )
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_accuracy",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     mode="lineplot",
+    # )
 
     # plot_roar(
     #     max_top_k=3,
