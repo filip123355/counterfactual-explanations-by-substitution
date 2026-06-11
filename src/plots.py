@@ -291,8 +291,8 @@ def plot_roar(
             hue="run_name",
             palette="viridis",
             marker="o",
-            err_style="bars",
-            errorbar="sd",
+            err_style="band",
+            errorbar=("ci", 65),
         )
     plt.title("ROAR Performance")
     plt.xlabel("Top-k")
@@ -407,15 +407,15 @@ if __name__ == "__main__":
     #     experiment_name="shapley",
     # )
 
-    plot_ranking_convergence_for_runs(
-        run_names=[
-            list(zip(run_group, INDS)) for run_group in RUN_NAMES
-        ],
-        labels=LABELS,
-        metrics=["eyes", "nose", "mouth"],
-        experiment_name="shapley",
-        title="tau=0.5",
-    )
+    # plot_ranking_convergence_for_runs(
+    #     run_names=[
+    #         list(zip(run_group, INDS)) for run_group in RUN_NAMES
+    #     ],
+    #     labels=LABELS,
+    #     metrics=["eyes", "nose", "mouth"],
+    #     experiment_name="shapley",
+    #     title="tau=0.5",
+    # )
 
     # plot_lpips_scatter_for_runs(
     #     run_names=RUN_NAMES,
@@ -433,13 +433,13 @@ if __name__ == "__main__":
         "retrain",
     ]
 
-    # plot_roar(
-    #     max_top_k=3,
-    #     metric_name="test_accuracy",
-    #     experiment_names=EXPERIMENTS,
-    #     run_names=RUN_NAMES,
-    #     mode="lineplot",
-    # )
+    plot_roar(
+        max_top_k=3,
+        metric_name="test_accuracy",
+        experiment_names=EXPERIMENTS,
+        run_names=RUN_NAMES,
+        mode="lineplot",
+    )
 
     # plot_roar(
     #     max_top_k=3,
