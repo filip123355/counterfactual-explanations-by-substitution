@@ -142,6 +142,7 @@ def plot_ranking_convergence_for_runs(
     metrics: list[str],
     experiment_name: str,
     title: str | None = None,
+    ylim: float | None = None,
 ) -> None:
     data = []
 
@@ -193,6 +194,10 @@ def plot_ranking_convergence_for_runs(
         plt.title("Feature Ranking Convergence")
     plt.xlabel("Target Image Index")
     plt.ylabel("Convergence Step")
+
+    if ylim is not None:
+        plt.ylim(0, ylim)
+
     plt.legend(title="Method")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
@@ -379,7 +384,7 @@ def plot_metric_for_experiment(
 
 
 if __name__ == "__main__":
-    INDS = [2471, 1586, 1275, 2646, 2712, 280, 664, 1777, 580, 503]
+    INDS = [2471, 1586, 1275, 2646, 2712, 1777, 503]#, 280, 664, 1777, 580, 503]
     NFE = [10, 20, 50, 100]
 
     # plot_mean_for_nfes(
@@ -399,13 +404,13 @@ if __name__ == "__main__":
         # [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
         # [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
         # [f"grid_search_fill_target_{ind}" for ind in INDS],
-        # [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
-        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
-        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
+        [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
+        # [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
+        # [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
     ]
     # LABELS = ["I2SB (NFE=10)", "I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
-    LABELS = ["NFE=20", "NFE=100"]
-    # LABELS = ["Substitution"]
+    # LABELS = ["NFE=20", "NFE=100"]
+    LABELS = ["Substitution"]
 
     # plot_mean_for_runs(
     #     RUN_NAMES,
@@ -425,15 +430,16 @@ if __name__ == "__main__":
     #     experiment_name="shapley",
     # )
 
-    # plot_ranking_convergence_for_runs(
-    #     run_names=[
-    #         list(zip(run_group, INDS)) for run_group in RUN_NAMES
-    #     ],
-    #     labels=LABELS,
-    #     metrics=["eyes", "nose", "mouth"],
-    #     experiment_name="shapley",
-    #     title="I2SB (tau=1.0)",
-    # )
+    plot_ranking_convergence_for_runs(
+        run_names=[
+            list(zip(run_group, INDS)) for run_group in RUN_NAMES
+        ],
+        labels=LABELS,
+        metrics=["eyes", "nose", "mouth"],
+        experiment_name="shapley",
+        title="Substitution",
+        ylim=35,
+    )
 
     # plot_lpips_scatter_for_runs(
     #     run_names=RUN_NAMES,
