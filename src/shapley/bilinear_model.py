@@ -1,4 +1,5 @@
 import json
+from loguru import logger
 import numpy as np
 import os
 import itertools
@@ -73,6 +74,59 @@ class BilinearModel:
             return False
 
         return cls._coalition_tokens(coalition_part) == cls._coalition_tokens(coalition_name)
+    
+    def compute_bias(
+        self,
+        model: DenseNetClassifier,
+        coalition_start: str="coalition_()_",
+        shapley_subdir: str = "shapley/coalitions",
+        device: torch.device | None = None,
+        predict_prob: bool = False,
+    ) -> float: 
+
+        artifacts = client.list_artifacts(
+            run_id=get_run_by_name(
+                run_name=self.run_name_temp
+                    .replace("XXX", str(self.target_idx))
+                    .replace("nnn", "1"),
+                experiment_name=self.first_order_experiment_name,
+            )[0].info.run_id,
+            path=shapley_subdir,
+        )
+
+        matching = [
+            a for a in artifacts 
+            if a.path.removeprefix(shapley_subdir + "/").startswith(coalition_start) and a.path.endswith(".png")
+        ]
+
+        if not device:
+            device = torch.device("cpu")
+            logger.warning("No device specified for compute_bias, defaulting to CPU. For better performance, consider passing a CUDA device if available.")
+        
+        image_tensors = []
+        for artifact in matching:
+            local_path = mlflow.artifacts.download_artifacts(
+                run_id=get_run_by_name(
+                    run_name=self.run_name_temp
+                        .replace("XXX", str(self.target_idx))
+                        .replace("nnn", "1"),
+                    experiment_name=self.first_order_experiment_name,
+                )[0].info.run_id,
+                artifact_path=artifact.path,
+            )
+
+            image = Image.open(local_path).convert("RGB")
+            image_tensor = NShapleyValueCalculator.prepare_image(image)
+            image_tensors.append(image_tensor)
+
+        input_tensor = torch.stack(image_tensors).to(device)
+
+        with torch.no_grad():
+            if predict_prob:
+                output = model.pred_prob(input_tensor)
+            else:
+                output = model(input_tensor)
+            return output[:, 0].mean().item()
 
     def load_coefficients(
         self,
@@ -128,12 +182,17 @@ class BilinearModel:
             key = f"({', '.join(sorted([f1, f2]))})"
             self.second_order_coefficients[idx] = second_order_values[key]
             
-    def predict_bmodel(self, feature_values: np.ndarray) -> float:
+    def predict_bmodel(
+        self, 
+        feature_values: np.ndarray,
+        bias: float | None = None,
+    ) -> float:
 
         if not np.all(np.isin(feature_values, [0, 1])):
             raise ValueError("Feature values must be binary (0 or 1).")
         
         linear_term = np.dot(self.first_order_coefficients, feature_values)
+
         Q = np.zeros((len(self.features), len(self.features)))
         rows, cols = np.triu_indices(len(self.features), k=1)
         Q[rows, cols] = self.second_order_coefficients
@@ -141,7 +200,7 @@ class BilinearModel:
             Q * np.outer(feature_values, feature_values)
         )
 
-        return linear_term + quadratic_term
+        return bias + linear_term + quadratic_term
     
     def predict_true_model(
             self, 
@@ -211,10 +270,14 @@ class BilinearModel:
         true_values = []
         predicted_values = []
         for i in range(1, self.interaction_level + 1):
+            bias = self.compute_bias(model=model, device=device, predict_prob=predict_prob)
             for subset in itertools.combinations(range(len(self.features)), i):
                 feature_values = np.zeros(len(self.features))
                 feature_values[list(subset)] = 1
-                pred_bmodel = self.predict_bmodel(feature_values)
+                pred_bmodel = self.predict_bmodel(
+                    feature_values, 
+                    bias=bias,
+                )
                 true_model = self.predict_true_model(
                     feature_values,
                     model=model,
@@ -228,12 +291,12 @@ class BilinearModel:
         predicted_values = np.array(predicted_values)
         ss_res = np.sum((true_values - predicted_values) ** 2)
         ss_tot = np.sum((true_values - np.mean(true_values)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0 
         return r_squared
 
 
 if __name__ == "__main__":
-    TARGET_INDEX = 1586
+    TARGET_INDEX = 2471
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset = CelebADataset(split="test")
@@ -245,10 +308,10 @@ if __name__ == "__main__":
     bilinear_model = BilinearModel(
         features=features,
         target_idx=TARGET_INDEX,
-        first_order_experiment_name="shapley",
-        second_order_experiment_name="shapley",
+        first_order_experiment_name="final_tau_0.5_nfe_10",
+        second_order_experiment_name="final_tau_0.5_nfe_10_N2",
         dataset=dataset,
-        run_name_temp="target_XXX_male_Nnnn_sub_fixed3"
+        run_name_temp="target_XXX_male_Nnnn_tau_0.5_nfe_10",
     )
     r_squared = bilinear_model.calculate_r_squared(model=model, device=device)
     print(f"R-squared: {r_squared:.4f}")

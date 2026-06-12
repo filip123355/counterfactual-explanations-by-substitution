@@ -107,7 +107,6 @@ class Retrainer:
             
             target_image_idx = _get_target_index(run)
             target_image = self.dataset.get(target_image_idx)["full_image"]
-            masked_image = target_image.copy()
 
             shapley_values_dir = mlflow.artifacts.download_artifacts(
                 run_id=run.info.run_id,
@@ -120,6 +119,7 @@ class Retrainer:
                 sorted(shapley_values.items(), key=lambda item: abs(item[1]), reverse=True)
             )
 
+            masked_image = target_image.copy()
             for feature, _ in list(sorted_shapley_values.items())[:top_k]:
                 feature_no_bra = feature[1:-1]
                 masked_image = self.substitution.substitute(
@@ -148,7 +148,10 @@ class Retrainer:
         dataset = TensorDataset(image_tensors, label_tensor)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle) # ty: ignore
 
-    def _evaluate(self, loader: DataLoader[tuple[torch.Tensor, torch.Tensor]]) -> tuple[float, float, float]:
+    def _evaluate(
+        self, 
+        loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
+    ) -> tuple[float, float, float]:
         self.model.eval()
         total_loss = 0.0
         total_correct = 0

@@ -84,16 +84,22 @@ def export_json_artifacts_by_run_names(
 
 if __name__ == "__main__":
     
-    EXPERIMENT_NAME = "shapley"
+    EXPERIMENT_NAME = "bilinear_blackfill_ok"
 
-    # export_experiment_to_csv(
-    #     experiment_name=EXPERIMENT_NAME,
-    #     output_path=f"exported_experiments/{EXPERIMENT_NAME}.csv",
-    # )
-
-    export_json_artifacts_by_run_names(
+    export_experiment_to_csv(
         experiment_name=EXPERIMENT_NAME,
-        run_names=["target_1050_male_N1_i2sb_tau_1.0_nfe_10_fixed", "target_2712_male_N1_i2sb_tau_1.0_nfe_10_fixed"],
-        artifact_path="lpips",
-        output_dir="exported_artifacts",
+        output_path=f"exported_experiments/{EXPERIMENT_NAME}.csv",
     )
+
+    # export_json_artifacts_by_run_names(
+    #     experiment_name=EXPERIMENT_NAME,
+    #     run_names=[
+    #         "target_2471_male_N1_tau_0.5_nfe_100", 
+    #         "target_1586_male_N1_tau_0.5_nfe_100",
+    #         "target_1275_male_N1_tau_0.5_nfe_100",
+    #         "target_2646_male_N1_tau_0.5_nfe_100",
+    #         "target_2712_male_N1_tau_0.5_nfe_100",
+    #     ],
+    #     artifact_path="lpips",
+    #     output_dir="exported_artifacts",
+    # )

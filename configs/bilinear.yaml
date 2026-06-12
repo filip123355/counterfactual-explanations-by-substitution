@@ -1,14 +1,14 @@
 TARGET_INDEX: 2471
 CLASSIFIER_LABEL: "male"
 DATASET_SPLIT: "test"
-FIRST_ORDER_EXPERIMENT_NAME: "final_blackfill"
-SECOND_ORDER_EXPERIMENT_NAME: "final_blackfill_2"
-SHAPLEY_RUN_NAME_TEMPLATE: "target_XXX_male_Nnnn_blackfill"
+FIRST_ORDER_EXPERIMENT_NAME: "final_tau_0.5_nfe_10"
+SECOND_ORDER_EXPERIMENT_NAME: "final_tau_0.5_nfe_10_N2"
+SHAPLEY_RUN_NAME_TEMPLATE: "target_XXX_male_Nnnn_tau_0.5_nfe_10"
 FEATURES:
   - eyes
   - nose
   - mouth
 INTERACTION_LEVEL: 2
 PRED_PROB: false
-MLFLOW_EXPERIMENT_NAME: "bilinear_blackfill"
-MLFLOW_RUN_NAME: "final_2471_blackfill"
+MLFLOW_EXPERIMENT_NAME: "bilinear_i2sb_ok_ok"
+MLFLOW_RUN_NAME: "final_2471_i2sb_tau_0.5_nfe_10"
