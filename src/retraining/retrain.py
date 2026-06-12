@@ -107,7 +107,6 @@ class Retrainer:
             
             target_image_idx = _get_target_index(run)
             target_image = self.dataset.get(target_image_idx)["full_image"]
-            masked_image = target_image.copy()
 
             shapley_values_dir = mlflow.artifacts.download_artifacts(
                 run_id=run.info.run_id,
@@ -120,6 +119,7 @@ class Retrainer:
                 sorted(shapley_values.items(), key=lambda item: abs(item[1]), reverse=True)
             )
 
+            masked_image = target_image.copy()
             for feature, _ in list(sorted_shapley_values.items())[:top_k]:
                 feature_no_bra = feature[1:-1]
                 masked_image = self.substitution.substitute(
@@ -148,7 +148,10 @@ class Retrainer:
         dataset = TensorDataset(image_tensors, label_tensor)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle) # ty: ignore
 
-    def _evaluate(self, loader: DataLoader[tuple[torch.Tensor, torch.Tensor]]) -> tuple[float, float, float]:
+    def _evaluate(
+        self, 
+        loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
+    ) -> tuple[float, float, float]:
         self.model.eval()
         total_loss = 0.0
         total_correct = 0
@@ -315,7 +318,7 @@ def main(indices: list[int]) -> None:
         )
 
         run_names = [
-            f"dataset_sub_target_{idx}"
+            f"target_{idx}_male_N1_blackfill"
             for idx in indices
         ]
 
@@ -351,14 +354,10 @@ if __name__ == "__main__":
         1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696, 
         1718, 228, 2049, 2021, 779, 2768, 1127, 674, 2257, 2060, 
         280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 
-        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036,
-        # 1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044, 
-        # 1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
-        # 134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
-    ]
-
-    # indices = [
-    #     2471, 1586, 1275, 2646, 2712, 1050, 933, 1242,
-    # ]
+        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036, 
+        1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044,
+        1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
+        134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
+        ]
 
     main(indices=indices)
