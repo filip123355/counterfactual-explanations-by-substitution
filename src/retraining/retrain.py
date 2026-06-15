@@ -115,12 +115,12 @@ class Retrainer:
             with open(shapley_values_dir) as f:
                 shapley_values: dict[str, float] = json.load(f)
 
-            sorted_shapley_values = dict(
-                sorted(shapley_values.items(), key=lambda item: abs(item[1]), reverse=True)
+            sorted_shapley_values = list(
+                sorted(shapley_values.items(), key=lambda item: item[1], reverse=True)
             )
 
             masked_image = target_image.copy()
-            for feature, _ in list(sorted_shapley_values.items())[:top_k]:
+            for feature, _ in list(sorted_shapley_values)[:top_k]:
                 feature_no_bra = feature[1:-1]
                 masked_image = self.substitution.substitute(
                     dest_idx=target_image_idx,
@@ -232,10 +232,9 @@ class Retrainer:
         for param in self.model.classifier.parameters():
             param.requires_grad = True
 
-        # for module in self.model.classifier.modules():
-        #     if isinstance(module, nn.Linear):
-        #         print("Resetting parameters of classifier module:", module)
-        #         module.reset_parameters()
+        for module in self.model.classifier.modules():
+            if isinstance(module, nn.Linear):
+                module.reset_parameters()
 
         optimizer = torch.optim.Adam(self.model.classifier.parameters(), lr=lr)
         criterion = nn.BCEWithLogitsLoss()
@@ -318,7 +317,8 @@ def main(indices: list[int]) -> None:
         )
 
         run_names = [
-            f"target_{idx}_male_N1_blackfill"
+            f"dataset_sub_target_{idx}"
+            # f"dataset_target_{idx}_tau_1.0"
             for idx in indices
         ]
 
