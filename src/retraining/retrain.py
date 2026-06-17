@@ -5,6 +5,7 @@ import os
 import json
 import tempfile
 
+import numpy as np
 import torch
 import torch.nn as nn
 import mlflow
@@ -97,23 +98,30 @@ class Retrainer:
         run_names: list[str],
         experiment_name: str,
         shapley_artifact_subdir: str,
+        random_shapley_seed: int | None = None,
     ) -> tuple[list[Image], list[int]]:
         runs = get_runs_by_names(run_names=run_names, experiment_name=experiment_name)
         
         coalition_images: list[Image] = []
         labels: list[int] = []
+
+        if random_shapley_seed is not None:
+            rng = np.random.default_rng(random_shapley_seed)
         
         for run in runs:
-            
             target_image_idx = _get_target_index(run)
             target_image = self.dataset.get(target_image_idx)["full_image"]
-
-            shapley_values_dir = mlflow.artifacts.download_artifacts(
-                run_id=run.info.run_id,
-                artifact_path=shapley_artifact_subdir.replace("XXXX", str(target_image_idx)),
-            )
-            with open(shapley_values_dir) as f:
-                shapley_values: dict[str, float] = json.load(f)
+            
+            if random_shapley_seed is None:
+                shapley_values_dir = mlflow.artifacts.download_artifacts(
+                    run_id=run.info.run_id,
+                    artifact_path=shapley_artifact_subdir.replace("XXXX", str(target_image_idx)),
+                )
+                with open(shapley_values_dir) as f:
+                    shapley_values: dict[str, float] = json.load(f)
+            else:
+                feature_names = map(lambda x: f"({x})" , [Feature.nose.value, CompositeFeature.eyes.value, CompositeFeature.mouth.value])
+                shapley_values = {feature: rng.random() for feature in feature_names}
 
             sorted_shapley_values = list(
                 sorted(shapley_values.items(), key=lambda item: item[1], reverse=True)
@@ -191,6 +199,7 @@ class Retrainer:
         lr: float = 1e-3,
         batch_size: int = BATCH_SIZE,
         seed: int = 42,
+        random_shapley: bool = False,
         model_save_path: str | None = None,
     ) -> RetrainResult:
         coalition_images, labels = self.get_coalition_images(
@@ -198,6 +207,7 @@ class Retrainer:
             experiment_name=experiment_name,
             shapley_artifact_subdir=shapley_artifact_subdir,
             top_k=top_k,
+            random_shapley_seed=seed if random_shapley else None,
         )
         if not coalition_images:
             raise ValueError("No coalition images were loaded from MLflow artifacts.")
@@ -317,8 +327,8 @@ def main(indices: list[int]) -> None:
         )
 
         run_names = [
-            f"dataset_sub_target_{idx}"
-            # f"dataset_target_{idx}_tau_1.0"
+            # f"dataset_sub_target_{idx}"
+            f"dataset_target_{idx}_tau_1.0"
             for idx in indices
         ]
 
@@ -333,6 +343,7 @@ def main(indices: list[int]) -> None:
             model_save_path=config.get("MODEL_SAVE_PATH"),
             top_k=config.get("TOP_K", 3),
             shapley_artifact_subdir=str(config.get("SHAPLEY_ARTIFACT_SUBDIR")),
+            random_shapley=config.get("RANDOM", False),
         )
 
         log_retraining_result(result)

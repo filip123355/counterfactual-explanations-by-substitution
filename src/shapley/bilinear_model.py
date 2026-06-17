@@ -10,11 +10,7 @@ from pathlib import Path
 
 from src.data import CelebADataset, CompositeFeature, Feature, FeatureType
 from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
-from src.substitution import ImageSubstitution, FaceKeypointDetector, MediapipeFaceKeypointDetector
 from .calculator import NShapleyValueCalculator
-from src.inpainter.i2sb import I2SB, SampleType
-from src.inpainter.guidance import CLIPGuidance
-from src.interface.clip import load_clip
 from src.mlflow import client, get_run_by_name
 
 class BilinearModel:
@@ -28,7 +24,7 @@ class BilinearModel:
         first_order_experiment_name: str,
         second_order_experiment_name: str,
         run_name_temp: str = "target_XXX_male_Nnnn_tau_0.5_nfe_10",
-        interaction_level: int = 2,
+        interaction_level: int = 3,
         dataset: CelebADataset | None = None,
     ) -> None:
         self.target_idx = target_idx
@@ -167,7 +163,15 @@ class BilinearModel:
             first_order_values = json.load(f)
 
         with open(second_values_path, "r", encoding="utf-8") as f:
-            second_order_values = json.load(f)
+            second_order_values_raw = json.load(f)
+            second_order_values = {}
+            for key, value in second_order_values_raw.items():
+                features = [t for t in self._coalition_tokens(key)]
+                if len(features) != 2:
+                    raise ValueError("Should be 2 features")
+                sorted_key = f"({', '.join(sorted(features))})"
+                second_order_values[sorted_key] = value
+
 
         self.first_order_coefficients = np.zeros(len(self.features), dtype=float)
         for i, feature in enumerate(self.features):
@@ -181,6 +185,9 @@ class BilinearModel:
             f1, f2 = str(self.features[r]), str(self.features[c])
             key = f"({', '.join(sorted([f1, f2]))})"
             self.second_order_coefficients[idx] = second_order_values[key]
+
+            self.first_order_coefficients[r] -= 0.5 * second_order_values[key] 
+            self.first_order_coefficients[c] -= 0.5 * second_order_values[key]
             
     def predict_bmodel(
         self, 
@@ -212,13 +219,9 @@ class BilinearModel:
     ) -> float:
         assert self.dataset is not None
 
-        target_hq_idx = self.dataset.data.iloc[self.target_idx]["idx"]
-        target_image_path = os.path.join(self.dataset.img_dir, f"{target_hq_idx}.jpg")
-        target_item = Image.open(target_image_path).convert("RGB")
-
         reg = []
         for feature_name, feature_value in zip(self.features, feature_values):
-            if feature_value == 0:
+            if feature_value == 1:
                 reg.append(str(feature_name))
 
         coalition_name = ", ".join(reg) if len(reg) > 0 else ""
@@ -269,8 +272,9 @@ class BilinearModel:
     ) -> float:
         true_values = []
         predicted_values = []
-        for i in range(1, self.interaction_level + 1):
-            bias = self.compute_bias(model=model, device=device, predict_prob=predict_prob)
+        bias = self.compute_bias(model=model, device=device, predict_prob=predict_prob)
+
+        for i in range(0, self.interaction_level + 1):
             for subset in itertools.combinations(range(len(self.features)), i):
                 feature_values = np.zeros(len(self.features))
                 feature_values[list(subset)] = 1
@@ -286,6 +290,9 @@ class BilinearModel:
                 )
                 true_values.append(true_model)
                 predicted_values.append(pred_bmodel)
+
+                if i == 3:
+                    assert abs(pred_bmodel - true_model) < 1e-4, f"Predicted: {pred_bmodel}, True: {true_model}"
 
         true_values = np.array(true_values)
         predicted_values = np.array(predicted_values)
@@ -308,10 +315,10 @@ if __name__ == "__main__":
     bilinear_model = BilinearModel(
         features=features,
         target_idx=TARGET_INDEX,
-        first_order_experiment_name="final_tau_0.5_nfe_10",
-        second_order_experiment_name="final_tau_0.5_nfe_10_N2",
+        first_order_experiment_name="shapley",
+        second_order_experiment_name="shapley",
         dataset=dataset,
-        run_name_temp="target_XXX_male_Nnnn_tau_0.5_nfe_10",
+        run_name_temp="target_XXX_male_Nnnn_i2sb_tau_1.0_fixed3",
     )
     r_squared = bilinear_model.calculate_r_squared(model=model, device=device)
     print(f"R-squared: {r_squared:.4f}")

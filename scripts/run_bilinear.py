@@ -46,7 +46,7 @@ def main():
             first_order_experiment_name=config["FIRST_ORDER_EXPERIMENT_NAME"],
             second_order_experiment_name=config["SECOND_ORDER_EXPERIMENT_NAME"],
             run_name_temp=config["SHAPLEY_RUN_NAME_TEMPLATE"],
-            interaction_level=config.get("INTERACTION_LEVEL", 2),
+            interaction_level=config.get("INTERACTION_LEVEL", 3),
             dataset=dataset,
         )
         r_squared = bilinear_model.calculate_r_squared(

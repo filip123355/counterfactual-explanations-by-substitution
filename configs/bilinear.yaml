@@ -1,14 +1,15 @@
 TARGET_INDEX: 2471
 CLASSIFIER_LABEL: "male"
 DATASET_SPLIT: "test"
-FIRST_ORDER_EXPERIMENT_NAME: "final_tau_0.5_nfe_10"
-SECOND_ORDER_EXPERIMENT_NAME: "final_tau_0.5_nfe_10_N2"
-SHAPLEY_RUN_NAME_TEMPLATE: "target_XXX_male_Nnnn_tau_0.5_nfe_10"
+FIRST_ORDER_EXPERIMENT_NAME: "shapley"
+SECOND_ORDER_EXPERIMENT_NAME: "shapley"
+SHAPLEY_RUN_NAME_TEMPLATE: "target_XXX_male_Nnnn_i2sb_tau_1.0_fixed3"
+# SHAPLEY_RUN_NAME_TEMPLATE: "target_XXX_male_Nnnn_sub_fixed3"
 FEATURES:
   - eyes
   - nose
   - mouth
-INTERACTION_LEVEL: 2
+INTERACTION_LEVEL: 3
 PRED_PROB: false
-MLFLOW_EXPERIMENT_NAME: "bilinear_i2sb_ok_ok"
-MLFLOW_RUN_NAME: "final_2471_i2sb_tau_0.5_nfe_10"
+MLFLOW_EXPERIMENT_NAME: "bilinear"
+MLFLOW_RUN_NAME: "test_2471"
