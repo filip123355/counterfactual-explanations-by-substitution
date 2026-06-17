@@ -357,7 +357,7 @@ def plot_metric_for_experiment(
         values = []
         for run in runs:
             metric_history = client.get_metric_history(run.info.run_id, metric_name)
-            values.extend(metric.value for metric in metric_history if abs(metric.value) < 7000)
+            values.extend(metric.value for metric in metric_history)
 
         if not values:
             logger.warning(
