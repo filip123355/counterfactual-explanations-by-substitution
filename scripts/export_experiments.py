@@ -84,7 +84,7 @@ def export_json_artifacts_by_run_names(
 
 if __name__ == "__main__":
     
-    EXPERIMENT_NAME = "bilinear_blackfill_ok"
+    EXPERIMENT_NAME = "retrain_blackfill_na_big_seed"
 
     export_experiment_to_csv(
         experiment_name=EXPERIMENT_NAME,

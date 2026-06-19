@@ -7,6 +7,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.constants import CLASSIFIER_LABEL
+from src.data.loader import CelebADataset
 from src.mlflow import get_runs_by_names, client, get_run_by_name
 
 
@@ -402,6 +404,7 @@ def plot_shapley_summary_per_feature(
     indices_1: list[int],
     indices_2: list[int],
     title: str = "Shapley Summary per Feature",
+    color_by_true_label: bool = False,
 ) -> None:
     base_features = ["eyes", "nose", "mouth"]
     all_features = base_features + [
@@ -409,7 +412,17 @@ def plot_shapley_summary_per_feature(
         "eyes + nose",
         "mouth + nose"
     ]
-    
+
+    label_column = CLASSIFIER_LABEL.capitalize()
+    test_dataset = CelebADataset(split="test") if color_by_true_label else None
+
+    def get_true_label_name(test_index: int) -> str | None:
+        if test_dataset is None:
+            return None
+
+        label_value = int(test_dataset.data.iloc[test_index][label_column])
+        return label_column.lower() if label_value == 1 else f"not {label_column.lower()}"
+
     data_rows = []
 
     for idx in indices_1:
@@ -418,11 +431,14 @@ def plot_shapley_summary_per_feature(
         for feature in base_features:
             history = client.get_metric_history(run_1.info.run_id, feature)
             last_val = history[-1].value
-            data_rows.append({
+            row = {
                 "Feature": feature,
                 "Shapley Value": last_val,
-                "Target Image": idx
-            })
+                "Target Image": idx,
+            }
+            if color_by_true_label:
+                row["True Label"] = get_true_label_name(idx)
+            data_rows.append(row)
 
 
     for idx in indices_2:
@@ -439,24 +455,39 @@ def plot_shapley_summary_per_feature(
                 
                 history = client.get_metric_history(run_2.info.run_id, metric_key)
                 last_val = history[-1].value
-                data_rows.append({
+                row = {
                     "Feature": normalized_key,
                     "Shapley Value": last_val,
-                    "Target Image": idx
-                })
+                    "Target Image": idx,
+                }
+                if color_by_true_label:
+                    row["True Label"] = get_true_label_name(idx)
+                data_rows.append(row)
 
     df = pd.DataFrame(data_rows)
     df["Feature"] = pd.Categorical(df["Feature"], categories=all_features, ordered=True)
 
     plt.figure(figsize=(9, 6))
-    
+
+    swarmplot_kwargs = {
+        "data": df,
+        "x": "Shapley Value",
+        "y": "Feature",
+        "alpha": 0.6,
+        "size": 4,
+    }
+
+    if color_by_true_label:
+        swarmplot_kwargs["hue"] = "True Label"
+        swarmplot_kwargs["palette"] = {
+            label_column.lower(): "#1f77b4",
+            f"not {label_column.lower()}": "#d62728",
+        }
+    else:
+        swarmplot_kwargs["color"] = "#1f77b4"
+
     sns.swarmplot(
-        data=df,
-        x="Shapley Value",
-        y="Feature",
-        color="#1f77b4",
-        alpha=0.6,
-        size=4
+        **swarmplot_kwargs,
     )
 
     plt.axvline(x=0, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
@@ -465,7 +496,9 @@ def plot_shapley_summary_per_feature(
     plt.xlabel("Shapley value", fontsize=12)
     plt.ylabel("")
     plt.grid(axis="x", linestyle="--", alpha=0.5)
-    
+    if color_by_true_label:
+        plt.legend(title="True label")
+
     sns.despine(left=True, bottom=False)
     plt.tight_layout()
     plt.show()
@@ -498,14 +531,19 @@ if __name__ == "__main__":
         # [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
         # [f"custom"],
         # [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
-        [f"lpips_target_{ind}_fill" for ind in INDS],
-        [f"lpips_target_{ind}_sub" for ind in INDS],
-        [f"lpips_target_{ind}_i2sb_tau_0.5" for ind in INDS],
-        [f"lpips_target_{ind}_i2sb_tau_1.0" for ind in INDS]
+        # [f"lpips_target_{ind}_fill" for ind in INDS],
+        # [f"lpips_target_{ind}_sub" for ind in INDS],
+        # [f"lpips_target_{ind}_i2sb_tau_0.5" for ind in INDS],
+        # [f"lpips_target_{ind}_i2sb_tau_1.0" for ind in INDS]
     ]
     # LABELS = ["I2SB (NFE=10)", "I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
     # LABELS = ["NFE=20", "NFE=100"]
     LABELS = ["Black fill", "Substitution", "Substitution + I2SB (tau=0.5)", "I2SB (tau=1.0)"]
+
+    EXPERIMENTS = [
+        "retrain_na",
+        "retrain_blackfill_na",
+    ]
 
     # plot_mean_for_runs(
     #     RUN_NAMES,
@@ -614,30 +652,30 @@ if __name__ == "__main__":
 
     IND1 = [1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683]
     # IND2 = [2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 2692, 622, 2217, 1258, 2189, 137, 988, 1622, 2781, 447, 1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696]
-    plot_metric_for_experiment(
-        experiment_names=[
-            # "bilinear_i2sb_tau_0.5_nfe_10",
-            "bilinear",
-            # "bilinear",
-            # "bilinear",
-            "bilinear",
-        ],
-        labels=[
-            # "Black fill",
-            # "I2SB",
-            "Substitution",
-            # "Substitution + I2SB (tau=0.5)",
-            "I2SB (tau=1.0)",
-        ],
-        run_names=[
-            # [f"filip_blackfill_ok_final_{ind}_blackfill" for ind in IND2],
-            [f"fixed_{ind}_sub" for ind in IND1],
-            # [f"filip_i2sb_ok_final_{ind}_i2sb_tau_0.5_nfe_10" for ind in IND2],
-            [f"fixed_{ind}_i2sb_tau_1.0" for ind in IND1]
-        ],
-        metric_name="r_squared",
-        mode="boxplot",
-    )
+    # plot_metric_for_experiment(
+    #     experiment_names=[
+    #         # "bilinear_i2sb_tau_0.5_nfe_10",
+    #         "bilinear",
+    #         # "bilinear",
+    #         # "bilinear",
+    #         "bilinear",
+    #     ],
+    #     labels=[
+    #         # "Black fill",
+    #         # "I2SB",
+    #         "Substitution",
+    #         # "Substitution + I2SB (tau=0.5)",
+    #         "I2SB (tau=1.0)",
+    #     ],
+    #     run_names=[
+    #         # [f"filip_blackfill_ok_final_{ind}_blackfill" for ind in IND2],
+    #         [f"fixed_{ind}_sub" for ind in IND1],
+    #         # [f"filip_i2sb_ok_final_{ind}_i2sb_tau_0.5_nfe_10" for ind in IND2],
+    #         [f"fixed_{ind}_i2sb_tau_1.0" for ind in IND1]
+    #     ],
+    #     metric_name="r_squared",
+    #     mode="boxplot",
+    # )
 
     IND1 = [
         2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 
@@ -653,17 +691,19 @@ if __name__ == "__main__":
     ]
 
     IND2 = [
-        2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683
+        2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683,
+        280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036,
     ]
 
-    # plot_shapley_summary_per_feature(
-    #     experiment_1_name="shapley",
-    #     experiment_2_name="shapley",
-    #     # run_template_1="dataset_target_{idx}_tau_1.0",
-    #     # run_template_2="target_{idx}_male_N2_i2sb_tau_1.0_fixed3",
-    #     run_template_1="dataset_sub_target_{idx}",
-    #     run_template_2="target_{idx}_male_N2_sub_fixed3",
-    #     indices_1=IND1,
-    #     indices_2=IND2,
-    #     title="Shapley Summary per Feature",
-    # )
+    plot_shapley_summary_per_feature(
+        experiment_1_name="final_tau_0.5_nfe_10",
+        experiment_2_name="final_i2sb_tau_0.5_nfe_10_N2_v2",
+        # run_template_1="dataset_target_{idx}_tau_1.0",
+        # run_template_2="target_{idx}_male_N2_i2sb_tau_1.0_fixed3",
+        run_template_1="target_{idx}_male_N1_tau_0.5_nfe_10",
+        run_template_2="target_{idx}_male_N2_tau_0.5_nfe_10",
+        indices_1=IND1,
+        indices_2=IND2,
+        title="",
+        color_by_true_label=True,
+    )
