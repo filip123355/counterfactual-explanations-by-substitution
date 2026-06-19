@@ -1,3 +1,4 @@
+from mlflow.entities import Run
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -324,15 +325,12 @@ def plot_roar(
 
 
 def plot_metric_for_experiment(
-    experiment_names: list[str] | str,
     metric_name: str,
+    experiment_names: list[str],
+    run_names: list[list[tuple[str, str]]],
     labels: list[str] | None = None,
-    run_names: list[list[str]] | None = None,
     mode: str = "boxplot",
 ) -> None:
-    if isinstance(experiment_names, str):
-        experiment_names = [experiment_names]
-
     if labels is None:
         labels = experiment_names
 
@@ -347,33 +345,25 @@ def plot_metric_for_experiment(
             logger.error(f"Experiment '{experiment_name}' not found.")
             continue
 
-        if run_names is None:
-            runs = client.search_runs(experiment_ids=[experiment.experiment_id])
-        else:
-            runs = []
-            for run_name in run_names[idx]:
-                runs.extend(
-                    get_run_by_name(run_name, experiment_name=experiment_name)
-                )
+        for run_name_1, run_name_2 in run_names[idx]:
+            run_1: Run = get_run_by_name(run_name_1, experiment_name=experiment_name)[0]
+            run_2: Run = get_run_by_name(run_name_2, experiment_name=experiment_name)[0]
 
-        values = []
-        for run in runs:
-            metric_history = client.get_metric_history(run.info.run_id, metric_name)
-            values.extend(metric.value for metric in metric_history)
+            hist_1 = client.get_metric_history(run_1.info.run_id, metric_name)
+            for metric in hist_1:
+                data_rows.append({
+                    "Experiment": label,
+                    metric_name: metric.value,
+                    "Shapley Level": "1-Shapley"
+                })
 
-        if not values:
-            logger.warning(
-                f"No metric '{metric_name}' found in experiment '{experiment_name}'."
-            )
-            continue
-
-        data_rows.extend(
-            {
-                "Experiment": label,
-                metric_name: value,
-            }
-            for value in values
-        )
+            hist_2 = client.get_metric_history(run_2.info.run_id, metric_name)
+            for metric in hist_2:
+                data_rows.append({
+                    "Experiment": label,
+                    metric_name: metric.value,
+                    "Shapley Level": "(1+2)-Shapley"
+                })
 
     if not data_rows:
         logger.warning(f"No values found for metric '{metric_name}'.")
@@ -383,18 +373,21 @@ def plot_metric_for_experiment(
     plt.figure(figsize=(max(6, 3 * len(labels)), 7))
 
     if mode == "boxplot":
-        sns.boxplot(data=df, x="Experiment", y=metric_name)
+        sns.boxplot(data=df, x="Experiment", y=metric_name, hue="Shapley Level",)
     elif mode == "violin":
-        sns.violinplot(data=df, x="Experiment", y=metric_name)
+        sns.violinplot(data=df, x="Experiment", y=metric_name, hue="Shapley Level",)
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    plt.title(f"{metric_name} across experiments")
-    plt.ylabel(metric_name)
+    metric_label = "R^2" if metric_name == "r_squared" else metric_name
+
+    plt.title(f"{metric_label} across experiments")
+    plt.ylabel(metric_label)
     plt.xlabel("Experiment")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
     plt.show()
+
 
 def plot_shapley_summary_per_feature(
     experiment_1_name: str,
@@ -482,7 +475,7 @@ def plot_shapley_summary_per_feature(
         swarmplot_kwargs["palette"] = {
             label_column.lower(): "#1f77b4",
             f"not {label_column.lower()}": "#d62728",
-        }
+        } # ty: ignore
     else:
         swarmplot_kwargs["color"] = "#1f77b4"
 
@@ -650,32 +643,35 @@ if __name__ == "__main__":
     #     mode="lineplot",
     # )
 
-    IND1 = [1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683]
+    IND1 = [1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036]
     # IND2 = [2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 2692, 622, 2217, 1258, 2189, 137, 988, 1622, 2781, 447, 1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696]
-    # plot_metric_for_experiment(
-    #     experiment_names=[
-    #         # "bilinear_i2sb_tau_0.5_nfe_10",
-    #         "bilinear",
-    #         # "bilinear",
-    #         # "bilinear",
-    #         "bilinear",
-    #     ],
-    #     labels=[
-    #         # "Black fill",
-    #         # "I2SB",
-    #         "Substitution",
-    #         # "Substitution + I2SB (tau=0.5)",
-    #         "I2SB (tau=1.0)",
-    #     ],
-    #     run_names=[
-    #         # [f"filip_blackfill_ok_final_{ind}_blackfill" for ind in IND2],
-    #         [f"fixed_{ind}_sub" for ind in IND1],
-    #         # [f"filip_i2sb_ok_final_{ind}_i2sb_tau_0.5_nfe_10" for ind in IND2],
-    #         [f"fixed_{ind}_i2sb_tau_1.0" for ind in IND1]
-    #     ],
-    #     metric_name="r_squared",
-    #     mode="boxplot",
-    # )
+
+    plot_metric_for_experiment(
+        experiment_names=[
+            # "bilinear_i2sb_tau_0.5_nfe_10",
+            "bilinear",
+            "bilinear",
+            # "bilinear",
+            # "bilinear",
+        ],
+        labels=[
+            # "Black fill",
+            # "I2SB",
+            "Substitution",
+            # "Substitution + I2SB (tau=0.5)",
+            "I2SB (tau=1.0)",
+        ],
+        run_names=[
+            # [f"filip_blackfill_ok_final_{ind}_blackfill" for ind in IND2],
+            # [f"filip_blackfill_fixed_test_{idx}" for idx in IND1],
+            [(f"fixed_{ind}_sub_shap_1", f"fixed_{ind}_sub") for ind in IND1],
+            # [f"filip_i2sb_ok_final_{ind}_i2sb_tau_0.5_nfe_10" for ind in IND2],
+            # [f"filip_i2sb_fixed_test_{idx}" for idx in IND1],
+            [(f"fixed_{ind}_i2sb_tau_1.0_shap_1", f"fixed_{ind}_i2sb_tau_1.0") for ind in IND1]
+        ],
+        metric_name="r_squared",
+        mode="boxplot",
+    )
 
     IND1 = [
         2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 
@@ -692,7 +688,7 @@ if __name__ == "__main__":
 
     IND2 = [
         2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683,
-        280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036,
+        280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036
     ]
 
     plot_shapley_summary_per_feature(

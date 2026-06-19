@@ -2,7 +2,7 @@ import torch
 import mlflow
 from loguru import logger
 
-from src.shapley import BilinearModel
+from src.shapley import BilinearModel, ShapleyMode
 from src.data import CelebADataset, CompositeFeature, Feature
 from src.inpainter.guidance.classifier import get_classifier
 from src.utils import load_config, parse_args, log_config_params
@@ -47,6 +47,7 @@ def main():
             second_order_experiment_name=config["SECOND_ORDER_EXPERIMENT_NAME"],
             run_name_temp=config["SHAPLEY_RUN_NAME_TEMPLATE"],
             interaction_level=config.get("INTERACTION_LEVEL", 3),
+            shapley_mode=ShapleyMode.from_str(config["SHAPLEY_MODE"]),
             dataset=dataset,
         )
         r_squared = bilinear_model.calculate_r_squared(

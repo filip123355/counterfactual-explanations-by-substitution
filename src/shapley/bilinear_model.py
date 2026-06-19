@@ -1,3 +1,4 @@
+from enum import StrEnum
 import json
 from loguru import logger
 import numpy as np
@@ -13,14 +14,29 @@ from src.inpainter.guidance.classifier import DenseNetClassifier, get_classifier
 from .calculator import NShapleyValueCalculator
 from src.mlflow import client, get_run_by_name
 
+class ShapleyMode(StrEnum):
+    ONE = "one"
+    TWO = "two"
+    ONE_TWO = "one_two"
+
+    @staticmethod
+    def from_str(val: str) -> "ShapleyMode":
+        for m in ShapleyMode:
+            if val == m.value:
+                return m
+        
+        raise ValueError("Unknown value")
+
 class BilinearModel:
     first_order_coefficients: np.ndarray
     second_order_coefficients: np.ndarray
+    shapley_mode: ShapleyMode
 
     def __init__(
         self,
         features: list[str | FeatureType],
         target_idx: int,
+        shapley_mode: ShapleyMode,
         first_order_experiment_name: str,
         second_order_experiment_name: str,
         run_name_temp: str = "target_XXX_male_Nnnn_tau_0.5_nfe_10",
@@ -34,6 +50,9 @@ class BilinearModel:
         self.first_order_experiment_name = first_order_experiment_name
         self.second_order_experiment_name = second_order_experiment_name
         self.run_name_temp = run_name_temp
+        self.shapley_mode = shapley_mode
+
+        logger.info(f"Using shapley mode: {shapley_mode}")
 
         self.load_coefficients(first_order_experiment_name, second_order_experiment_name)
 
@@ -186,8 +205,10 @@ class BilinearModel:
             key = f"({', '.join(sorted([f1, f2]))})"
             self.second_order_coefficients[idx] = second_order_values[key]
 
-            self.first_order_coefficients[r] -= 0.5 * second_order_values[key] 
-            self.first_order_coefficients[c] -= 0.5 * second_order_values[key]
+            if self.shapley_mode == ShapleyMode.ONE_TWO:
+                logger.info("Normalizing shapley values")
+                self.first_order_coefficients[r] -= 0.5 * second_order_values[key] 
+                self.first_order_coefficients[c] -= 0.5 * second_order_values[key]
             
     def predict_bmodel(
         self, 
@@ -207,7 +228,13 @@ class BilinearModel:
             Q * np.outer(feature_values, feature_values)
         )
 
-        return bias + linear_term + quadratic_term
+        match self.shapley_mode:
+            case ShapleyMode.ONE:
+                return bias + linear_term
+            case ShapleyMode.TWO:
+                return bias + quadratic_term
+            case ShapleyMode.ONE_TWO:
+                return bias + linear_term + quadratic_term
     
     def predict_true_model(
             self, 
@@ -291,8 +318,8 @@ class BilinearModel:
                 true_values.append(true_model)
                 predicted_values.append(pred_bmodel)
 
-                if i == 3:
-                    assert abs(pred_bmodel - true_model) < 1e-2, f"Predicted: {pred_bmodel}, True: {true_model}"
+                if i == 3 and self.shapley_mode in [ShapleyMode.ONE, ShapleyMode.ONE_TWO]:
+                    assert abs(pred_bmodel - true_model) / abs(true_model) < 1e-4, f"Predicted: {pred_bmodel}, True: {true_model}"
 
         true_values = np.array(true_values)
         predicted_values = np.array(predicted_values)
@@ -319,6 +346,7 @@ if __name__ == "__main__":
         second_order_experiment_name="shapley",
         dataset=dataset,
         run_name_temp="target_XXX_male_Nnnn_i2sb_tau_1.0_fixed3",
+        shapley_mode=ShapleyMode.TWO,
     )
     r_squared = bilinear_model.calculate_r_squared(model=model, device=device)
     print(f"R-squared: {r_squared:.4f}")
