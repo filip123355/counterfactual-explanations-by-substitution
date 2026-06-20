@@ -1,11 +1,15 @@
+from mlflow.entities import Run
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import json
+from pathlib import Path
 
 from loguru import logger
 
+from src.constants import CLASSIFIER_LABEL
+from src.data.loader import CelebADataset
 from src.mlflow import get_runs_by_names, client, get_run_by_name
 
 
@@ -42,6 +46,10 @@ def plot_mean_for_runs(
     labels: list[str],
     metric_name: str,
     experiment_name: str,
+    title: str | None = None,
+    vline: float | None = None,
+    ylabel: str | None = None,
+    ylim: float | None = None,
 ):
     for run_group, label in zip(run_names, labels):
         mean_values = get_mean_metric(
@@ -50,10 +58,17 @@ def plot_mean_for_runs(
             experiment_name=experiment_name,
             plot=False,
         )
-        plt.plot(mean_values, label=label)
-    plt.title(f"Mean {metric_name}")
-    plt.xlabel("Step")
-    plt.ylabel(metric_name)
+        sns.lineplot(x=range(len(mean_values)), y=mean_values, label=label)
+    plt.title(title if title else f"Mean {metric_name}")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.xlabel("Number of marginalization images")
+    plt.ylabel(ylabel or metric_name)
+    if vline is not None:
+        plt.axvline(x=vline, ymin=0, color="black", linestyle="--", alpha=0.7)
+
+    if ylim is not None:
+        plt.ylim(0, ylim)
+
     plt.legend()
     plt.show()
 
@@ -63,6 +78,10 @@ def plot_mean_for_nfes(
     nfes: list[int],
     metric_name: str,
     experiment_name: str,
+    title: str | None = None,
+    vline: float | None = None,
+    ylabel: str | None = None,
+    ylim: float | None = None,   
 ) -> None:
     run_groups = []
     for nfe in nfes:
@@ -74,6 +93,10 @@ def plot_mean_for_nfes(
         labels=[f"NFE={nfe}" for nfe in nfes],
         metric_name=metric_name,
         experiment_name=experiment_name,
+        title=title,
+        vline=vline,
+        ylabel=ylabel,
+        ylim=ylim,
     )
 
 
@@ -122,6 +145,8 @@ def plot_ranking_convergence_for_runs(
     labels: list[str],
     metrics: list[str],
     experiment_name: str,
+    title: str | None = None,
+    ylim: float | None = None,
 ) -> None:
     data = []
 
@@ -167,9 +192,16 @@ def plot_ranking_convergence_for_runs(
         edgecolor="black",
     )
 
-    plt.title("Feature Ranking Convergence")
+    if title:
+        plt.title(title)
+    else:
+        plt.title("Feature Ranking Convergence")
     plt.xlabel("Target Image Index")
     plt.ylabel("Convergence Step")
+
+    if ylim is not None:
+        plt.ylim(0, ylim)
+
     plt.legend(title="Method")
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
@@ -210,7 +242,7 @@ def plot_lpips_scatter_for_runs(
 
     plt.title("LPIPS Distance vs. Prediction Difference")
     plt.xlabel("LPIPS Distance to Target Image")
-    plt.ylabel("Prediction Difference")
+    plt.ylabel("Prediction Difference (logits)")
     plt.legend(title="Method")
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
@@ -220,13 +252,16 @@ def plot_lpips_scatter_for_runs(
 def plot_roar(
     max_top_k: int,
     metric_name: str,
-    experiment_name: str = "retrain",
+    experiment_names: list[str] = ["retrain"],
     run_names: list[str] = ["i2sb_tau_0.5_topk_X"],
+    labels: list[str] | None = None,
     mode: str = "boxplot",
+    ylabel: str | None = None,
 ) -> None:
     data_rows = []
+    assert len(experiment_names) == len(run_names), "experiment_names and run_names must have the same length."
 
-    for run_name_template in run_names:
+    for experiment_name, run_name_template, label in zip(experiment_names, run_names, labels or run_names):
         for top_k in range(1, max_top_k + 1):
             current_run_name = run_name_template.replace("X", str(top_k))
 
@@ -246,7 +281,7 @@ def plot_roar(
                     {
                         "Top-k": top_k,
                         metric_name: last_test_metric,
-                        "run_name": run_name_template,
+                        "Method": label,
                     }
                 )
 
@@ -258,7 +293,7 @@ def plot_roar(
             data=df,
             x="Top-k",
             y=metric_name,
-            hue="run_name",
+            hue="Method",
             palette="viridis",
         )
     elif mode == "violin":
@@ -266,7 +301,7 @@ def plot_roar(
             data=df,
             x="Top-k",
             y=metric_name,
-            hue="run_name",
+            hue="Method",
             palette="viridis",
         )
     elif mode == "lineplot":
@@ -274,47 +309,244 @@ def plot_roar(
             data=df,
             x="Top-k",
             y=metric_name,
-            hue="run_name",
-            palette="viridis",
+            hue="Method",
+            # palette="viridis",
             marker="o",
-            err_style="bars",
-            errorbar="sd",
+            err_style="band",
+            errorbar=("ci", 95),
         )
     plt.title("ROAR Performance")
-    plt.xlabel("Top-k")
-    plt.ylabel(f"Mean Test {metric_name.capitalize()}")
+    plt.xlabel("Top-k features removed")
+    plt.xticks(range(1, max_top_k + 1))
+    plt.ylabel(f"Mean Test {metric_name.capitalize()}" if ylabel is None else ylabel)
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
     plt.show()
 
 
+def plot_metric_for_experiment(
+    metric_name: str,
+    experiment_names: list[str],
+    run_names: list[list[tuple[str, str]]],
+    labels: list[str] | None = None,
+    mode: str = "boxplot",
+) -> None:
+    if labels is None:
+        labels = experiment_names
+
+    if len(labels) != len(experiment_names):
+        raise ValueError("labels and experiment_names must have the same length.")
+
+    data_rows = []
+
+    for idx, (experiment_name, label) in enumerate(zip(experiment_names, labels)):
+        experiment = client.get_experiment_by_name(experiment_name)
+        if experiment is None:
+            logger.error(f"Experiment '{experiment_name}' not found.")
+            continue
+
+        for run_name_1, run_name_2 in run_names[idx]:
+            run_1: Run = get_run_by_name(run_name_1, experiment_name=experiment_name)[0]
+            run_2: Run = get_run_by_name(run_name_2, experiment_name=experiment_name)[0]
+
+            hist_1 = client.get_metric_history(run_1.info.run_id, metric_name)
+            for metric in hist_1:
+                data_rows.append({
+                    "Experiment": label,
+                    metric_name: metric.value,
+                    "Shapley Level": "1-Shapley"
+                })
+
+            hist_2 = client.get_metric_history(run_2.info.run_id, metric_name)
+            for metric in hist_2:
+                data_rows.append({
+                    "Experiment": label,
+                    metric_name: metric.value,
+                    "Shapley Level": "(1+2)-Shapley"
+                })
+
+    if not data_rows:
+        logger.warning(f"No values found for metric '{metric_name}'.")
+        return
+
+    df = pd.DataFrame(data_rows)
+    plt.figure(figsize=(max(6, 3 * len(labels)), 7))
+
+    if mode == "boxplot":
+        sns.boxplot(data=df, x="Experiment", y=metric_name, hue="Shapley Level",)
+    elif mode == "violin":
+        sns.violinplot(data=df, x="Experiment", y=metric_name, hue="Shapley Level",)
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    metric_label = "R^2" if metric_name == "r_squared" else metric_name
+
+    plt.title(f"{metric_label} across experiments")
+    plt.ylabel(metric_label)
+    plt.xlabel("Experiment")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_shapley_summary_per_feature(
+    experiment_1_name: str,
+    experiment_2_name: str,
+    run_template_1: str,
+    run_template_2: str,
+    indices_1: list[int],
+    indices_2: list[int],
+    title: str = "Shapley Summary per Feature",
+    color_by_true_label: bool = False,
+) -> None:
+    base_features = ["eyes", "nose", "mouth"]
+    all_features = base_features + [
+        "eyes + mouth",
+        "eyes + nose",
+        "mouth + nose"
+    ]
+
+    label_column = CLASSIFIER_LABEL.capitalize()
+    test_dataset = CelebADataset(split="test") if color_by_true_label else None
+
+    def get_true_label_name(test_index: int) -> str | None:
+        if test_dataset is None:
+            return None
+
+        label_value = int(test_dataset.data.iloc[test_index][label_column])
+        return label_column.lower() if label_value == 1 else f"not {label_column.lower()}"
+
+    data_rows = []
+
+    for idx in indices_1:
+        run_name_1 = run_template_1.replace("{idx}", str(idx))
+        run_1 = get_run_by_name(run_name_1, experiment_name=experiment_1_name)[0]
+        for feature in base_features:
+            history = client.get_metric_history(run_1.info.run_id, feature)
+            last_val = history[-1].value
+            row = {
+                "Feature": feature,
+                "Shapley Value": last_val,
+                "Target Image": idx,
+            }
+            if color_by_true_label:
+                row["True Label"] = get_true_label_name(idx)
+            data_rows.append(row)
+
+
+    for idx in indices_2:
+        run_name_2 = run_template_2.replace("{idx}", str(idx))
+        run_2 = get_run_by_name(run_name_2, experiment_name=experiment_2_name)[0]
+        
+        run_data = client.get_run(run_2.info.run_id).data
+        metrics = run_data.metrics
+        
+        for metric_key, _ in metrics.items():
+            if "_" in metric_key:
+                parts = metric_key.split("_")
+                normalized_key = " + ".join(sorted(parts))
+                
+                history = client.get_metric_history(run_2.info.run_id, metric_key)
+                last_val = history[-1].value
+                row = {
+                    "Feature": normalized_key,
+                    "Shapley Value": last_val,
+                    "Target Image": idx,
+                }
+                if color_by_true_label:
+                    row["True Label"] = get_true_label_name(idx)
+                data_rows.append(row)
+
+    df = pd.DataFrame(data_rows)
+    df["Feature"] = pd.Categorical(df["Feature"], categories=all_features, ordered=True)
+
+    plt.figure(figsize=(9, 6))
+
+    swarmplot_kwargs = {
+        "data": df,
+        "x": "Shapley Value",
+        "y": "Feature",
+        "alpha": 0.6,
+        "size": 4,
+    }
+
+    if color_by_true_label:
+        swarmplot_kwargs["hue"] = "True Label"
+        swarmplot_kwargs["palette"] = {
+            label_column.lower(): "#1f77b4",
+            f"not {label_column.lower()}": "#d62728",
+        } # ty: ignore
+    else:
+        swarmplot_kwargs["color"] = "#1f77b4"
+
+    sns.swarmplot(
+        **swarmplot_kwargs,
+    )
+
+    plt.axvline(x=0, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
+
+    plt.title(title)
+    plt.xlabel("Shapley value", fontsize=12)
+    plt.ylabel("")
+    plt.grid(axis="x", linestyle="--", alpha=0.5)
+    if color_by_true_label:
+        plt.legend(title="True label")
+
+    sns.despine(left=True, bottom=False)
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
-    INDS = [2471, 1586, 1275, 2646, 2712, 280, 664, 1777, 580, 503]
-    NFE = [20, 50, 100]
+    # INDS = [2471, 1586, 1275, 2646, 2712, 1777, 503]#, 280, 664, 1777, 580, 503]
+    INDS = [1586, 1275, 2646, 2712, 1050]
+    # INDS = [2471, 1586, 1275, 2646, 2712]
+    NFE = [10, 20, 50, 100]
 
     # plot_mean_for_nfes(
     #     inds=INDS,
     #     nfes=NFE,
     #     metric_name="max_abs_shapley_difference",
     #     experiment_name="shapley",
+    #     title="Substitution + I2SB (tau=0.5)",
+    #     vline=20.0,
+    #     ylabel="Max Abs Shapley Difference",
+    #     ylim=0.35,
     # )
 
     RUN_NAMES = [
-        [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
-        [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
-        [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
-        [f"grid_search_fill_target_{ind}" for ind in INDS],
-        [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
-        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
-        [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_10" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_20" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_50" for ind in INDS],
+        # [f"target_{ind}_male_N1_tau_0.5_nfe_100" for ind in INDS],
+        # [f"grid_search_fill_target_{ind}" for ind in INDS],
+        # [f"grid_search_sub_target_{ind}_fixed" for ind in INDS],
+        # [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_20" for ind in INDS],
+        # [f"custom"],
+        # [f"grid_search_i2sb_target_{ind}_tau_1.0_nfe_100" for ind in INDS],
+        # [f"lpips_target_{ind}_fill" for ind in INDS],
+        # [f"lpips_target_{ind}_sub" for ind in INDS],
+        # [f"lpips_target_{ind}_i2sb_tau_0.5" for ind in INDS],
+        # [f"lpips_target_{ind}_i2sb_tau_1.0" for ind in INDS]
     ]
-    LABELS = ["I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
+    # LABELS = ["I2SB (NFE=10)", "I2SB (NFE=20)", "I2SB (NFE=50)", "I2SB (NFE=100)"]
+    # LABELS = ["NFE=20", "NFE=100"]
+    LABELS = ["Black fill", "Substitution", "Substitution + I2SB (tau=0.5)", "I2SB (tau=1.0)"]
+
+    EXPERIMENTS = [
+        "retrain_na",
+        "retrain_blackfill_na",
+    ]
 
     # plot_mean_for_runs(
     #     RUN_NAMES,
     #     LABELS,
     #     metric_name="max_abs_shapley_difference",
     #     experiment_name="shapley",
+    #     title="I2SB (tau=1.0)",
+    #     vline=20.0,
+    #     ylabel="Max Abs Shapley Difference",
+    #     ylim=0.35,
     # )
 
     # plot_ranking_change(
@@ -331,6 +563,8 @@ if __name__ == "__main__":
     #     labels=LABELS,
     #     metrics=["eyes", "nose", "mouth"],
     #     experiment_name="shapley",
+    #     title="Substitution",
+    #     ylim=35,
     # )
 
     # plot_lpips_scatter_for_runs(
@@ -340,32 +574,132 @@ if __name__ == "__main__":
     # )
 
     RUN_NAMES = [
-        "i2sb_tau_1.0_topk_X_partial2",
-        "i2sb_tau_1.0_topk_X_partial2_reset",
-        "sub_topk_X_partial2",
-        "sub_topk_X_partial2_reset",
+        # "filip_blackfill_blackfill_topk_X",
+        # "filip__i2sb_tau_0.5_topk_X",
+        # "i2sb_tau_1.0_topk_X",
+        # "sub_topk_X_2",
+        # "sub_reset4_topk_X",
+        # "sub_i2sb_tau_1.0_topk_X",
+        # "i2sb_tau_1.0_reset_noabs_topk_X",
+        # "i2sb_tau_1.0_reset_noabs_test_0.2_topk_X",
+        # "i2sb_tau_1.0_reset_noabs_epochs_64_topk_X",
+        # "i2sb_tau_1.0_reset_noabs_lr_0.001_topk_X",
+        # "sub_reset_noabs_test_0.2_topk_X",
+        # "sub_reset_noabs_epochs_64_topk_X",
+        # "sub_reset_noabs_lr_0.001_topk_X",
+        "random_topk_X",
+        "filip_blackfill_big_seed_fixed_blackfill_X",
+        "sub_reset_noabs_topk_X",
+        "i2sb_tau_1.0_reset_noabs_2_topk_X",
+        "filip_i2sb_big_seed_fixed_i2sb_tau_0.5_topk_X",
     ]
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_accuracy",
-        experiment_name="retrain",
-        run_names=RUN_NAMES,
-        mode="lineplot",
+    EXPERIMENTS = [
+        "retrain",
+        "retrain",
+        "retrain",
+        "retrain",
+        "retrain"
+    ]
+
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_accuracy",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     labels=[
+    #         "Random",
+    #         "Black fill",
+    #         "Substitution",
+    #         "I2SB (tau=1.0)",
+    #         "Substitution + I2SB (tau=0.5)",
+    #         # "I2SB (tau=1.0, no abs)",
+    #         # "I2SB (tau=1.0, no abs, 2)",
+    #         # "I2SB (tau=1.0, no abs, test 0.2)",
+    #         # "I2SB (tau=1.0, no abs, epochs 64)",
+    #         # "I2SB (tau=1.0, no abs, lr 0.001)",
+    #         # "Substitution (no abs)",
+    #         # "Substitution (no abs, test 0.2)",
+    #         # "Substitution (no abs, epochs 64)",
+    #         # "Substitution (no abs, lr 0.001)",
+    #     ],
+    #     mode="lineplot",
+    #     ylabel="Test Accuracy",
+    # )
+
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_mean_confidence",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     mode="lineplot",
+    # )
+
+    # plot_roar(
+    #     max_top_k=3,
+    #     metric_name="test_loss",
+    #     experiment_names=EXPERIMENTS,
+    #     run_names=RUN_NAMES,
+    #     mode="lineplot",
+    # )
+
+    IND1 = [1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036]
+    # IND2 = [2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 2692, 622, 2217, 1258, 2189, 137, 988, 1622, 2781, 447, 1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696]
+
+    plot_metric_for_experiment(
+        experiment_names=[
+            # "bilinear_i2sb_tau_0.5_nfe_10",
+            "bilinear",
+            "bilinear",
+            # "bilinear",
+            # "bilinear",
+        ],
+        labels=[
+            # "Black fill",
+            # "I2SB",
+            "Substitution",
+            # "Substitution + I2SB (tau=0.5)",
+            "I2SB (tau=1.0)",
+        ],
+        run_names=[
+            # [f"filip_blackfill_ok_final_{ind}_blackfill" for ind in IND2],
+            # [f"filip_blackfill_fixed_test_{idx}" for idx in IND1],
+            [(f"fixed_{ind}_sub_shap_1", f"fixed_{ind}_sub") for ind in IND1],
+            # [f"filip_i2sb_ok_final_{ind}_i2sb_tau_0.5_nfe_10" for ind in IND2],
+            # [f"filip_i2sb_fixed_test_{idx}" for idx in IND1],
+            [(f"fixed_{ind}_i2sb_tau_1.0_shap_1", f"fixed_{ind}_i2sb_tau_1.0") for ind in IND1]
+        ],
+        metric_name="r_squared",
+        mode="boxplot",
     )
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_mean_confidence",
-        experiment_name="retrain",
-        run_names=RUN_NAMES,
-        mode="lineplot",
-    )
+    IND1 = [
+        2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 
+        1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683, 
+        2692, 622, 2217, 1258, 2189, 137, 988, 1622, 2781, 447, 
+        1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696, 
+        1718, 228, 2049, 2021, 779, 2768, 1127, 674, 2257, 2060, 
+        280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 
+        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036, 
+        1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044,
+        1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
+        134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
+    ]
 
-    plot_roar(
-        max_top_k=3,
-        metric_name="test_loss",
-        experiment_name="retrain",
-        run_names=RUN_NAMES,
-        mode="lineplot",
+    IND2 = [
+        2471, 1586, 1275, 2646, 2712, 1050, 933, 1242, 497, 2606, 1855, 429, 942, 2813, 1865, 1745, 173, 1552, 2356, 2683,
+        280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036
+    ]
+
+    plot_shapley_summary_per_feature(
+        experiment_1_name="final_tau_0.5_nfe_10",
+        experiment_2_name="final_i2sb_tau_0.5_nfe_10_N2_v2",
+        # run_template_1="dataset_target_{idx}_tau_1.0",
+        # run_template_2="target_{idx}_male_N2_i2sb_tau_1.0_fixed3",
+        run_template_1="target_{idx}_male_N1_tau_0.5_nfe_10",
+        run_template_2="target_{idx}_male_N2_tau_0.5_nfe_10",
+        indices_1=IND1,
+        indices_2=IND2,
+        title="",
+        color_by_true_label=True,
     )

@@ -185,7 +185,7 @@ def calc_lpips_values(
                 img_tensor = transform(img).unsqueeze(0).to(device)
                 score = loss_fn_vgg(target_tensor, img_tensor).item()
 
-                results.append((score, abs(float(pred_value - target_pred))))
+                results.append((score, float(pred_value - target_pred)))
 
     return results
 

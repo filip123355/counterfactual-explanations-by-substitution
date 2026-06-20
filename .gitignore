@@ -219,3 +219,7 @@ generated/
 # MLflow
 mlruns/
 mlflow.db
+
+# Exportted experiments
+exported_experiments/
+exported_artifacts/

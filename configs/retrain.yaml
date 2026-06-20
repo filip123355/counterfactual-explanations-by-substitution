@@ -1,13 +1,14 @@
 DATASET_SPLIT: "test"
-MLFLOW_EXPERIMENT_NAME: "final_tau_0.5_nfe_10"
+MLFLOW_EXPERIMENT_NAME: "shapley"
 TEST_SIZE: 0.5
-NUM_EPOCHS: 20
-LR: 0.001
+NUM_EPOCHS: 32
+LR: 0.0001
 BATCH_SIZE: 32
 SEED: 42
 MODEL_SAVE_PATH: "models/retrained"
 TOP_K: 3
+RANDOM: false
 
 TRAINING_EXPERIMENT_NAME: "retrain"
-TRAINING_RUN_NAME: "i2sb_tau_0.5_topk_3"
+TRAINING_RUN_NAME: "test2_topk_3"
 SHAPLEY_ARTIFACT_SUBDIR: "shapley/values/target_XXXX_1_shapley_values_001.json"

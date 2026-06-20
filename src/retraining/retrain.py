@@ -5,6 +5,7 @@ import os
 import json
 import tempfile
 
+import numpy as np
 import torch
 import torch.nn as nn
 import mlflow
@@ -97,30 +98,37 @@ class Retrainer:
         run_names: list[str],
         experiment_name: str,
         shapley_artifact_subdir: str,
+        random_shapley_seed: int | None = None,
     ) -> tuple[list[Image], list[int]]:
         runs = get_runs_by_names(run_names=run_names, experiment_name=experiment_name)
         
         coalition_images: list[Image] = []
         labels: list[int] = []
+
+        if random_shapley_seed is not None:
+            rng = np.random.default_rng(random_shapley_seed)
         
         for run in runs:
-            
             target_image_idx = _get_target_index(run)
             target_image = self.dataset.get(target_image_idx)["full_image"]
+            
+            if random_shapley_seed is None:
+                shapley_values_dir = mlflow.artifacts.download_artifacts(
+                    run_id=run.info.run_id,
+                    artifact_path=shapley_artifact_subdir.replace("XXXX", str(target_image_idx)),
+                )
+                with open(shapley_values_dir) as f:
+                    shapley_values: dict[str, float] = json.load(f)
+            else:
+                feature_names = map(lambda x: f"({x})" , [Feature.nose.value, CompositeFeature.eyes.value, CompositeFeature.mouth.value])
+                shapley_values = {feature: rng.random() for feature in feature_names}
+
+            sorted_shapley_values = list(
+                sorted(shapley_values.items(), key=lambda item: item[1], reverse=True)
+            )
+
             masked_image = target_image.copy()
-
-            shapley_values_dir = mlflow.artifacts.download_artifacts(
-                run_id=run.info.run_id,
-                artifact_path=shapley_artifact_subdir.replace("XXXX", str(target_image_idx)),
-            )
-            with open(shapley_values_dir) as f:
-                shapley_values: dict[str, float] = json.load(f)
-
-            sorted_shapley_values = dict(
-                sorted(shapley_values.items(), key=lambda item: abs(item[1]), reverse=True)
-            )
-
-            for feature, _ in list(sorted_shapley_values.items())[:top_k]:
+            for feature, _ in list(sorted_shapley_values)[:top_k]:
                 feature_no_bra = feature[1:-1]
                 masked_image = self.substitution.substitute(
                     dest_idx=target_image_idx,
@@ -148,7 +156,10 @@ class Retrainer:
         dataset = TensorDataset(image_tensors, label_tensor)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle) # ty: ignore
 
-    def _evaluate(self, loader: DataLoader[tuple[torch.Tensor, torch.Tensor]]) -> tuple[float, float, float]:
+    def _evaluate(
+        self, 
+        loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
+    ) -> tuple[float, float, float]:
         self.model.eval()
         total_loss = 0.0
         total_correct = 0
@@ -188,6 +199,7 @@ class Retrainer:
         lr: float = 1e-3,
         batch_size: int = BATCH_SIZE,
         seed: int = 42,
+        random_shapley: bool = False,
         model_save_path: str | None = None,
     ) -> RetrainResult:
         coalition_images, labels = self.get_coalition_images(
@@ -195,6 +207,7 @@ class Retrainer:
             experiment_name=experiment_name,
             shapley_artifact_subdir=shapley_artifact_subdir,
             top_k=top_k,
+            random_shapley_seed=seed if random_shapley else None,
         )
         if not coalition_images:
             raise ValueError("No coalition images were loaded from MLflow artifacts.")
@@ -229,10 +242,9 @@ class Retrainer:
         for param in self.model.classifier.parameters():
             param.requires_grad = True
 
-        # for module in self.model.classifier.modules():
-        #     if isinstance(module, nn.Linear):
-        #         print("Resetting parameters of classifier module:", module)
-        #         module.reset_parameters()
+        for module in self.model.classifier.modules():
+            if isinstance(module, nn.Linear):
+                module.reset_parameters()
 
         optimizer = torch.optim.Adam(self.model.classifier.parameters(), lr=lr)
         criterion = nn.BCEWithLogitsLoss()
@@ -315,7 +327,8 @@ def main(indices: list[int]) -> None:
         )
 
         run_names = [
-            f"dataset_sub_target_{idx}"
+            # f"dataset_sub_target_{idx}"
+            f"dataset_target_{idx}_tau_1.0"
             for idx in indices
         ]
 
@@ -330,6 +343,7 @@ def main(indices: list[int]) -> None:
             model_save_path=config.get("MODEL_SAVE_PATH"),
             top_k=config.get("TOP_K", 3),
             shapley_artifact_subdir=str(config.get("SHAPLEY_ARTIFACT_SUBDIR")),
+            random_shapley=config.get("RANDOM", False),
         )
 
         log_retraining_result(result)
@@ -351,14 +365,10 @@ if __name__ == "__main__":
         1909, 575, 1982, 792, 2451, 2155, 1185, 386, 804, 2696, 
         1718, 228, 2049, 2021, 779, 2768, 1127, 674, 2257, 2060, 
         280, 664, 1777, 580, 503, 797, 2147, 502, 1215, 1688, 392, 
-        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036,
-        # 1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044, 
-        # 1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
-        # 134, 2493, 1885, 434, 351, 2724, 237, 1935, 530
-    ]
-
-    # indices = [
-    #     2471, 1586, 1275, 2646, 2712, 1050, 933, 1242,
-    # ]
+        2258, 1888, 456, 1954, 477, 1498, 419, 1310, 955, 1036, 
+        1312, 227, 1136, 1466, 2290, 2812, 433, 1955, 2345, 2044,
+        1311, 1349, 2385, 2316, 1424, 1648, 2809, 1582, 417, 1097,
+        134, 2493, 1885, 434, 351, 2724, 237, 1935, 530,
+        ]
 
     main(indices=indices)
