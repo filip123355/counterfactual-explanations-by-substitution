@@ -1,5 +1,17 @@
-# counterfactual-explanations-by-substitution
-Implementation of Counterfactual Explanations by Substitution, using Region Constrained Schrödinger Bridges (RCSB)
+# SubSHAP: Evaluating Geometric Substitution and Diffusion Models for Visual Feature Attribution
+
+Feature attribution methods, such as Shapley values, are challenging to apply to images
+because removing a visual feature often creates unnatural artifacts. This forces a choice between
+interventional methods, which create out-of-distribution samples, and observational
+methods, which keep the image on the true data manifold at the cost of feature correlation.
+In this work we introduce a unified image substitution pipeline SubSHAP and use it to compare
+different image alteration strategies: Black Fill, Thin-Plate Spline substitution, and
+diffusion-based refinement (I2SB). We evaluate how true to the model those approaches
+are using a bilinear approximation model and the ROAR benchmark (Hooker et al., 2019).
+We observe that while diffusion methods produce more realistic images they suffer from
+feature correlation leak that degrades the quality of model explanations. We find that simple
+geometric substitution offers the best balance, maintaining feature diversity without
+confusing the classifier, and ultimately resulting in the most reliable visual Shapley values
 
 ## Setup
 
